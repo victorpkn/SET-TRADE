@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Victor's Vector — Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0d1117; --bg2: #161b22; --border: #30363d; --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff; --red: #f85149; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-wrap { position: relative; width: 100%; max-width: 400px; padding: 20px; }
+        .login-mesh {
+            position: fixed; inset: 0; pointer-events: none;
+            background: radial-gradient(ellipse 60% 50% at 30% 40%, rgba(124,58,237,0.1) 0%, transparent 70%),
+                        radial-gradient(ellipse 50% 40% at 70% 60%, rgba(88,166,255,0.08) 0%, transparent 70%);
+        }
+        .login-card {
+            position: relative; background: rgba(22,27,34,0.7); backdrop-filter: blur(20px);
+            border: 1px solid var(--border); border-radius: 16px; padding: 40px 32px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+        }
+        .login-logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 28px; }
+        .login-logo svg { filter: drop-shadow(0 2px 8px rgba(124,58,237,0.4)); }
+        .login-logo span { font-size: 1.3rem; font-weight: 700; }
+        .login-logo .gradient { background: linear-gradient(135deg, #7c3aed, #58a6ff, #06d6a0); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .login-card p { text-align: center; font-size: 0.88rem; color: var(--text2); margin-bottom: 24px; line-height: 1.5; }
+        .login-field { margin-bottom: 16px; }
+        .login-field input {
+            width: 100%; padding: 14px 16px; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 10px; color: var(--text); font-size: 0.95rem; font-family: inherit; outline: none;
+            transition: border-color 0.2s;
+        }
+        .login-field input:focus { border-color: var(--accent); }
+        .login-field input::placeholder { color: var(--text2); }
+        .login-btn {
+            width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 0.95rem;
+            font-weight: 700; font-family: inherit; cursor: pointer; color: #fff;
+            background: linear-gradient(135deg, #7c3aed, #58a6ff);
+            transition: opacity 0.2s;
+        }
+        .login-btn:hover { opacity: 0.88; }
+        .login-error { text-align: center; color: var(--red); font-size: 0.85rem; margin-bottom: 14px; }
+    </style>
+</head>
+<body>
+    <div class="login-mesh"></div>
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-logo">
+                <svg width="30" height="30" viewBox="0 0 36 36" fill="none">
+                    <defs><linearGradient id="vg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#7c3aed"/><stop offset="50%" stop-color="#58a6ff"/><stop offset="100%" stop-color="#06d6a0"/></linearGradient></defs>
+                    <path d="M4 8L18 28L32 8" stroke="url(#vg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    <path d="M18 28L28 12" stroke="url(#vg)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+                </svg>
+                <span>Victor's <span class="gradient">Vector</span></span>
+            </div>
+            <p>Enter the password to continue</p>
+            {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+            <form method="POST">
+                <div class="login-field">
+                    <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+                </div>
+                <button type="submit" class="login-btn">Enter</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

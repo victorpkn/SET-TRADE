@@ -3,21 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Victor's Edge — Stock Analysis</title>
+    <title>Victor's Vector — Stock Analysis</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <header>
         <div class="header-left">
-            <h1 class="logo">
-                <svg class="logo-icon" width="28" height="28" viewBox="0 0 32 32" fill="none">
-                    <rect width="32" height="32" rx="8" fill="#58a6ff"/>
-                    <path d="M7 22L13 16L17 19L25 10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M21 10H25V14" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <h1 class="logo" id="logo-home">
+                <svg class="logo-icon" width="30" height="30" viewBox="0 0 36 36" fill="none">
+                    <defs>
+                        <linearGradient id="vg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#7c3aed"/>
+                            <stop offset="50%" stop-color="#58a6ff"/>
+                            <stop offset="100%" stop-color="#06d6a0"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="M4 8L18 28L32 8" stroke="url(#vg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    <path d="M18 28L28 12" stroke="url(#vg)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
                 </svg>
-                Victor's <span class="accent">Edge</span>
+                <span class="logo-text">Victor's <span class="logo-gradient">Vector</span></span>
             </h1>
             <div class="header-market-toggle">
                 <button class="btn-market-pill active" data-market="set"><span class="market-flag">🇹🇭</span>SET</button>
@@ -77,7 +83,80 @@
 
         <!-- Main Content -->
         <main>
-            <section class="search-section">
+            <!-- Welcome Home -->
+            <section id="welcome" class="welcome">
+                <div class="welcome-mesh"></div>
+                <div class="welcome-hero">
+                    <div class="welcome-badge">Stock Intelligence Platform</div>
+                    <h2 class="welcome-title">Navigate the market<br>with <span class="welcome-gradient">precision</span></h2>
+                    <p class="welcome-sub">Technical signals, fundamental analysis, DCF valuation, and portfolio tracking — all in one place.</p>
+                    <div class="welcome-typewriter">
+                        <span class="tw-prompt">&gt;</span>
+                        <span class="tw-text" id="tw-text"></span>
+                        <span class="tw-cursor">|</span>
+                    </div>
+                </div>
+                <div class="welcome-features" id="welcome-features">
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </div>
+                        <h4>Smart Signals</h4>
+                        <p>Buy, Hold, or Sell recommendations powered by SMA crossovers, MACD, and Stochastic analysis.</p>
+                    </div>
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        </div>
+                        <h4>Health Check</h4>
+                        <p>Key financial ratios, radar chart scores, and analyst consensus at a glance.</p>
+                    </div>
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                        </div>
+                        <h4>DCF Valuation</h4>
+                        <p>Discounted cash flow models with adjustable assumptions and sensitivity tables.</p>
+                    </div>
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                        </div>
+                        <h4>Portfolio Tracker</h4>
+                        <p>Track all your positions with live P&L, sector allocation, and weighted metrics.</p>
+                    </div>
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </div>
+                        <h4>Dual Markets</h4>
+                        <p>Analyze Thai SET stocks and US equities. Switch markets with one click.</p>
+                    </div>
+                    <div class="wf-card" data-reveal>
+                        <div class="wf-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+                        </div>
+                        <h4>Side-by-Side</h4>
+                        <p>Compare two stocks head-to-head on every metric. Find the better investment.</p>
+                    </div>
+                </div>
+                <div class="welcome-cta">
+                    <div class="welcome-search-glow">
+                        <input type="text" id="welcome-search" placeholder="Try searching PTT, AAPL, or AOT..." autocomplete="off" spellcheck="false">
+                        <button class="btn-primary" id="welcome-search-btn">Analyze</button>
+                    </div>
+                    <div class="welcome-quick">
+                        <span class="wq-label">Popular:</span>
+                        <button class="wq-chip" data-ticker="PTT" data-market="set">PTT</button>
+                        <button class="wq-chip" data-ticker="AAPL" data-market="us">AAPL</button>
+                        <button class="wq-chip" data-ticker="AOT" data-market="set">AOT</button>
+                        <button class="wq-chip" data-ticker="TSLA" data-market="us">TSLA</button>
+                        <button class="wq-chip" data-ticker="CPALL" data-market="set">CPALL</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="search-section hidden" id="search-section">
                 <div class="search-row">
                     <div class="search-bar">
                         <div class="search-input-wrap">
@@ -146,6 +225,7 @@
                     <button class="tab-btn active" data-tab="signals" data-i18n="tabSignals">Signals</button>
                     <button class="tab-btn" data-tab="summary" data-i18n="tabSummary">Summary</button>
                     <button class="tab-btn" data-tab="valuation" data-i18n="tabValuation">Valuation</button>
+                    <button class="tab-btn" data-tab="backtest" data-i18n="tabBacktest">Backtest</button>
                 </div>
 
                 <!-- Signals Tab -->
@@ -176,9 +256,9 @@
 
                     <div class="indicator-toggles">
                         <span class="toggle-label" data-i18n="indicators">Indicators:</span>
-                        <button class="btn-indicator active" data-indicator="sma" data-i18n="indSma">SMA Crossover</button>
-                        <button class="btn-indicator active" data-indicator="macd">MACD</button>
-                        <button class="btn-indicator active" data-indicator="stochastic" data-i18n="indStoch">Stochastic</button>
+                        <button class="btn-indicator active" data-indicator="sma"><span data-i18n="indSma">SMA Crossover</span><span class="ind-info-icon" data-edu="sma" title="Learn about SMA">i</span></button>
+                        <button class="btn-indicator active" data-indicator="macd"><span>MACD</span><span class="ind-info-icon" data-edu="macd" title="Learn about MACD">i</span></button>
+                        <button class="btn-indicator active" data-indicator="stochastic"><span data-i18n="indStoch">Stochastic</span><span class="ind-info-icon" data-edu="stochastic" title="Learn about Stochastic">i</span></button>
                     </div>
 
                     <div class="popover-overlay hidden" id="popover-overlay">
@@ -199,6 +279,10 @@
                                 <div class="popover-signal-example sell-example">
                                     <div class="popover-signal-badge sell" data-i18n="signal_sell">SELL</div>
                                     <p data-i18n="sellExample">At least 2 of 3 indicators are bearish.</p>
+                                </div>
+                                <div class="popover-scoring">
+                                    <h4 data-i18n="edu_scoring_title">How the Score Works</h4>
+                                    <p data-i18n="edu_scoring_body">Each active indicator gives a score: +1 for Buy, 0 for Hold, −1 for Sell. These are added together.</p>
                                 </div>
                             </div>
                         </div>
@@ -253,12 +337,58 @@
                     </div>
                     <div id="valuation-content"></div>
                 </div>
+
+                <!-- Backtest Tab -->
+                <div class="tab-content" id="tab-backtest">
+                    <div id="backtest-loading" class="loading hidden">
+                        <div class="spinner"></div>
+                        <span data-i18n="loading">Fetching data...</span>
+                    </div>
+                    <div id="backtest-content">
+                        <div class="bt-hero">
+                            <div class="bt-hero-icon">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            </div>
+                            <h3 data-i18n="bt_title">Strategy Backtest</h3>
+                            <p class="bt-hero-sub" data-i18n="bt_subtitle">See how your signal settings would have performed historically</p>
+                            <button class="btn-primary btn-sm" id="bt-run-btn" data-i18n="bt_run">Run Backtest</button>
+                        </div>
+                        <div id="bt-results" class="hidden">
+                            <div class="bt-strategy-card" id="bt-strategy-label"></div>
+                            <div class="bt-metrics-grid" id="bt-metrics"></div>
+                            <div class="bt-section">
+                                <h4 data-i18n="bt_equity_curve">Equity Curve</h4>
+                                <div class="bt-chart-wrap" id="bt-equity-chart"></div>
+                            </div>
+                            <div class="bt-section">
+                                <h4 data-i18n="bt_trades">Trade Log</h4>
+                                <div class="bt-table-wrap">
+                                    <table class="bt-table">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th data-i18n="bt_entry">Entry</th>
+                                                <th data-i18n="bt_exit">Exit</th>
+                                                <th data-i18n="bt_entry_price">Entry Price</th>
+                                                <th data-i18n="bt_exit_price">Exit Price</th>
+                                                <th data-i18n="bt_pnl">P/L %</th>
+                                                <th data-i18n="bt_hold_days">Hold Days</th>
+                                                <th data-i18n="bt_result">Result</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="bt-trades-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
         </main>
     </div>
 
     <footer>
-        <p data-i18n="disclaimer">This tool is for educational purposes only. Not financial advice.</p>
+        <p data-i18n="disclaimer">Victor's Vector — For educational purposes only. Not financial advice.</p>
     </footer>
 
     <!-- Position Form -->

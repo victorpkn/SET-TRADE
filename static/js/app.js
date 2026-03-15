@@ -565,21 +565,112 @@
                 if (v.d != null) valHtml += `<span class="val-label">%D:</span> ${v.d}`;
             }
 
-            return `<div class="ind-card ${sig} ${isActive ? "" : "disabled"}">
+            return `<div class="ind-card ${sig} ${isActive ? "" : "disabled"}" data-edu-key="${key}">
                 <div class="ind-card-top">
                     <span class="ind-card-name">${r.indicator}</span>
                     <span class="ind-card-chip ${sig}">${t("signal_" + sig)}</span>
                 </div>
                 <div class="ind-card-values">${valHtml}</div>
                 <div class="ind-card-brief">${r.brief || ""}</div>
+                <div class="ind-card-learn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    ${t("edu_learn_more")}
+                </div>
             </div>`;
         }).join("");
+
+        cardsEl.querySelectorAll(".ind-card[data-edu-key]").forEach(card => {
+            card.addEventListener("click", () => {
+                const k = card.dataset.eduKey;
+                if (k) showEduPopover(k);
+            });
+        });
     }
 
     function updateIndicatorVisibility() {
         const m = { sma: "#sma-chart-container", macd: "#macd-chart-container", stochastic: "#stochastic-chart-container" };
         for (const [k, s] of Object.entries(m)) { const el = $(s); if (el) el.classList.toggle("hidden", !activeIndicators.has(k)); }
         if (lastRawSignal) renderSignal(lastRawSignal);
+    }
+
+    // ── Educational Popovers ──
+
+    const EDU_ICONS = {
+        sma: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+        macd: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>`,
+        stochastic: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+    };
+
+    function getEduCurrentSignal(key) {
+        if (!lastRawSignal || !lastRawSignal.reasons) return null;
+        const nameMap = { sma: "SMA Crossover", macd: "MACD", stochastic: "Stochastic" };
+        return lastRawSignal.reasons.find(r => r.indicator === nameMap[key]) || null;
+    }
+
+    function showEduPopover(key) {
+        let overlay = $(".metric-tooltip-overlay");
+        if (overlay) overlay.remove();
+
+        const prefix = `edu_${key}_`;
+        const title = t(prefix + "title");
+        const icon = EDU_ICONS[key] || "";
+
+        const reason = getEduCurrentSignal(key);
+        let currentHtml = "";
+        if (reason) {
+            const sig = reason.signal.toLowerCase();
+            currentHtml = `<div class="edu-current-signal">
+                <span class="edu-signal-dot ${sig}"></span>
+                <span><strong>${t("current")}:</strong> ${t("signal_" + sig)} — ${reason.brief || ""}</span>
+            </div>`;
+        }
+
+        overlay = document.createElement("div");
+        overlay.className = "metric-tooltip-overlay";
+        overlay.innerHTML = `<div class="edu-popover">
+            <div class="edu-header">
+                <h3><span class="edu-header-icon">${icon}</span>${title}</h3>
+                <button class="edu-close">&times;</button>
+            </div>
+            <div class="edu-body">
+                <div class="edu-section">
+                    <div class="edu-section-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                        What is it?
+                    </div>
+                    <p>${t(prefix + "what")}</p>
+                </div>
+                <div class="edu-section">
+                    <div class="edu-section-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M4 4h16v13H6.5A2.5 2.5 0 004 19.5V4z"/></svg>
+                        ${t("edu_formula")}
+                    </div>
+                    <p>${t(prefix + "calc")}</p>
+                </div>
+                <div class="edu-section">
+                    <div class="edu-section-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        ${t("edu_reading")}
+                    </div>
+                    <p>${t(prefix + "read")}</p>
+                </div>
+                <div class="edu-section">
+                    <div class="edu-section-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        ${t("edu_when_flips")}
+                    </div>
+                    <p>${t(prefix + "flip")}</p>
+                </div>
+                ${currentHtml}
+            </div>
+        </div>`;
+
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.querySelector(".edu-close").addEventListener("click", close);
+        overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+        const onKey = e => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+        document.addEventListener("keydown", onKey);
     }
 
     // ── Sticky Price Bar ──
@@ -1020,6 +1111,136 @@
         }
     }
 
+
+    // ── Backtest ──
+
+    let btChart = null;
+    let backtestCache = {};
+
+    async function fetchBacktest() {
+        if (!currentTicker) return;
+        const cacheKey = `${currentTicker}-${currentMarket}-${currentPeriod}`;
+        if (backtestCache[cacheKey]) { renderBacktest(backtestCache[cacheKey]); return; }
+        $("#backtest-loading").classList.remove("hidden");
+        $("#bt-results").classList.add("hidden");
+        try {
+            const active = Array.from(activeIndicators).join(",");
+            const qs = `market=${currentMarket}&period=${currentPeriod}&active=${active}` + settingsToQuery();
+            const res = await fetch(`/api/backtest/${encodeURIComponent(currentTicker)}?${qs}`);
+            if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Backtest failed"); }
+            const data = await res.json();
+            backtestCache[cacheKey] = data;
+            renderBacktest(data);
+        } catch (err) {
+            $("#bt-results").classList.remove("hidden");
+            $("#bt-metrics").innerHTML = `<div class="error-msg">${err.message}</div>`;
+        } finally {
+            $("#backtest-loading").classList.add("hidden");
+        }
+    }
+
+    function renderBacktest(data) {
+        const m = data.metrics;
+        const trades = data.trades || [];
+        const activeNames = (data.activeIndicators || []).map(k => k === "sma" ? "SMA" : k === "macd" ? "MACD" : "Stochastic");
+
+        // Strategy label
+        const stratEl = $("#bt-strategy-label");
+        stratEl.innerHTML = `<span class="bt-strat-name">${activeNames.join(" + ")}</span>` +
+            `<span class="bt-strat-ticker">${data.name || data.ticker}</span>` +
+            `<span class="bt-strat-period">${data.period.toUpperCase()}</span>` +
+            `<span class="bt-strat-trades">${m.numTrades} ${t("bt_trades_count")}</span>`;
+
+        // Metrics grid
+        const metricsEl = $("#bt-metrics");
+        const metrics = [
+            { key: "bt_total_return", val: fmtPct(m.totalReturn), color: m.totalReturn >= 0 ? "green" : "red" },
+            { key: "bt_buy_hold", val: fmtPct(m.buyHoldReturn), color: m.buyHoldReturn >= 0 ? "green" : "red" },
+            { key: "bt_outperformance", val: fmtPct(m.outperformance), color: m.outperformance >= 0 ? "green" : "red" },
+            { key: "bt_win_rate", val: `${m.winRate}%`, color: m.winRate >= 50 ? "green" : "red" },
+            { key: "bt_avg_win", val: fmtPct(m.avgWin), color: "green" },
+            { key: "bt_avg_loss", val: fmtPct(m.avgLoss), color: "red" },
+            { key: "bt_max_dd", val: fmtPct(-m.maxDrawdown), color: "red" },
+            { key: "bt_sharpe", val: m.sharpe.toFixed(2), color: m.sharpe >= 1 ? "green" : m.sharpe >= 0 ? "neutral" : "red" },
+            { key: "bt_profit_factor", val: m.profitFactor >= 999 ? "∞" : m.profitFactor.toFixed(2), color: m.profitFactor >= 1.5 ? "green" : "red" },
+            { key: "bt_avg_hold", val: `${m.avgHoldDays.toFixed(0)}d`, color: "neutral" },
+            { key: "bt_wins_losses", val: `${m.numWins}W / ${m.numLosses}L`, color: "neutral" },
+            { key: "bt_num_trades", val: m.numTrades, color: "neutral" },
+        ];
+        metricsEl.innerHTML = metrics.map(mc => `<div class="bt-metric-card">
+            <div class="bt-metric-label">${t(mc.key)}</div>
+            <div class="bt-metric-value bt-${mc.color}">${mc.val}</div>
+        </div>`).join("");
+
+        // Equity curve chart
+        renderEquityCurve(data.equityCurve, data.buyHoldCurve);
+
+        // Trades table
+        const tbody = $("#bt-trades-body");
+        tbody.innerHTML = trades.map((tr, i) => {
+            const cls = tr.result === "win" ? "bt-win" : tr.result === "loss" ? "bt-loss" : "bt-open";
+            return `<tr class="${cls}">
+                <td>${i + 1}</td>
+                <td>${tr.entryDate}</td>
+                <td>${tr.exitDate}</td>
+                <td>${tr.entryPrice.toFixed(2)}</td>
+                <td>${tr.exitPrice.toFixed(2)}</td>
+                <td class="${tr.pnlPct >= 0 ? "clr-green" : "clr-red"}">${fmtPct(tr.pnlPct)}</td>
+                <td>${tr.holdDays}</td>
+                <td><span class="bt-result-chip ${cls}">${tr.result === "open" ? t("bt_open") : tr.result === "win" ? t("bt_win") : t("bt_loss_label")}</span></td>
+            </tr>`;
+        }).join("");
+
+        $("#bt-results").classList.remove("hidden");
+    }
+
+    function fmtPct(val) {
+        const sign = val >= 0 ? "+" : "";
+        return `${sign}${val.toFixed(2)}%`;
+    }
+
+    function renderEquityCurve(equityCurve, buyHoldCurve) {
+        const container = $("#bt-equity-chart");
+        container.innerHTML = "";
+        if (!equityCurve || !equityCurve.length) return;
+
+        if (btChart) { btChart.remove(); btChart = null; }
+
+        btChart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 320,
+            layout: { background: { type: "solid", color: "transparent" }, textColor: "#8b949e", fontFamily: "Inter, sans-serif" },
+            grid: { vertLines: { color: "rgba(48,54,61,0.3)" }, horzLines: { color: "rgba(48,54,61,0.3)" } },
+            rightPriceScale: { borderColor: "#30363d" },
+            timeScale: { borderColor: "#30363d", timeVisible: false },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        });
+
+        const strategySeries = btChart.addLineSeries({
+            color: "#58a6ff",
+            lineWidth: 2,
+            title: "Strategy",
+        });
+        strategySeries.setData(equityCurve);
+
+        const bhSeries = btChart.addLineSeries({
+            color: "#8b949e",
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            title: "Buy & Hold",
+        });
+        bhSeries.setData(buyHoldCurve);
+
+        btChart.timeScale().fitContent();
+
+        const ro = new ResizeObserver(() => {
+            if (btChart && container.clientWidth > 0) {
+                btChart.applyOptions({ width: container.clientWidth });
+            }
+        });
+        ro.observe(container);
+    }
+
     // ── Portfolio ──
 
     let portfolioOpen = false;
@@ -1029,6 +1250,7 @@
         $("#portfolio-btn").classList.toggle("active", portfolioOpen);
         $("#portfolio-view").classList.toggle("hidden", !portfolioOpen);
         if (!portfolioOpen) return;
+        hideWelcome();
         $("#results").classList.add("hidden");
         if (compareMode) { toggleCompare(); }
         fetchPortfolio();
@@ -1315,6 +1537,7 @@
         currentTicker = ticker;
         if (compareMode) return;
         if (portfolioOpen) closePortfolio();
+        hideWelcome();
         $("#loading").classList.remove("hidden");
         $("#error-msg").classList.add("hidden");
         $("#results").classList.add("hidden");
@@ -1452,6 +1675,88 @@
         if (stochChart) stochChart.applyOptions({ width: $("#stoch-chart").clientWidth });
     }
 
+    // ── Welcome / Home ──
+
+    const TYPEWRITER_PHRASES = [
+        "Analyzing PTT.BK — Signal: BUY",
+        "Running DCF on AAPL — 18.2% upside",
+        "Scanning SET market for opportunities",
+        "Checking MACD crossover on AOT.BK",
+        "Portfolio P&L today: +2.4%",
+        "TSLA Stochastic exiting oversold zone",
+    ];
+
+    let twIdx = 0;
+    let twCharIdx = 0;
+    let twDeleting = false;
+    let twTimeout = null;
+
+    function typewriterTick() {
+        const el = $("#tw-text");
+        if (!el) return;
+        const phrase = TYPEWRITER_PHRASES[twIdx % TYPEWRITER_PHRASES.length];
+
+        if (!twDeleting) {
+            twCharIdx++;
+            el.textContent = phrase.slice(0, twCharIdx);
+            if (twCharIdx >= phrase.length) {
+                twTimeout = setTimeout(() => { twDeleting = true; typewriterTick(); }, 2200);
+                return;
+            }
+            twTimeout = setTimeout(typewriterTick, 45 + Math.random() * 35);
+        } else {
+            twCharIdx--;
+            el.textContent = phrase.slice(0, twCharIdx);
+            if (twCharIdx <= 0) {
+                twDeleting = false;
+                twIdx++;
+                twTimeout = setTimeout(typewriterTick, 400);
+                return;
+            }
+            twTimeout = setTimeout(typewriterTick, 20);
+        }
+    }
+
+    function initScrollReveals() {
+        const cards = $$(".wf-card[data-reveal]");
+        if (!cards.length) return;
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, i) => {
+                if (entry.isIntersecting) {
+                    setTimeout(() => entry.target.classList.add("revealed"), i * 80);
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.15 });
+        cards.forEach(c => observer.observe(c));
+    }
+
+    function showWelcome() {
+        const welcome = $("#welcome");
+        if (welcome) welcome.classList.remove("hidden");
+        $("#search-section").classList.add("hidden");
+        $("#results").classList.add("hidden");
+        $("#price-bar").classList.add("hidden");
+        if (portfolioOpen) closePortfolio();
+        if (compareMode) toggleCompare();
+    }
+
+    function hideWelcome() {
+        const welcome = $("#welcome");
+        if (welcome) welcome.classList.add("hidden");
+        $("#search-section").classList.remove("hidden");
+    }
+
+    function welcomeSearch(ticker, market) {
+        if (market && market !== currentMarket) {
+            currentMarket = market;
+            $$(".btn-market-pill").forEach(b => b.classList.toggle("active", b.dataset.market === currentMarket));
+        }
+        hideWelcome();
+        $("#ticker-input").value = ticker;
+        doSearch();
+    }
+
     // ── Init ──
     document.addEventListener("DOMContentLoaded", () => {
         loadSettings();
@@ -1460,6 +1765,42 @@
         loadTranslations().then(() => { applyLanguage(); populateSettingsUI(); });
         renderWatchlist();
         refreshWatchlistData();
+
+        // Welcome page
+        initScrollReveals();
+        typewriterTick();
+
+        // Trigger cards to reveal immediately if visible
+        setTimeout(() => {
+            $$(".wf-card[data-reveal]").forEach((c, i) => {
+                setTimeout(() => c.classList.add("revealed"), 200 + i * 100);
+            });
+        }, 400);
+
+        const welcomeSearchInput = $("#welcome-search");
+        if (welcomeSearchInput) {
+            welcomeSearchInput.addEventListener("keydown", e => {
+                if (e.key === "Enter") {
+                    const val = welcomeSearchInput.value.trim();
+                    if (val) welcomeSearch(val);
+                }
+            });
+        }
+        const welcomeSearchBtn = $("#welcome-search-btn");
+        if (welcomeSearchBtn) {
+            welcomeSearchBtn.addEventListener("click", () => {
+                const val = welcomeSearchInput.value.trim();
+                if (val) welcomeSearch(val);
+            });
+        }
+        $$(".wq-chip").forEach(chip => {
+            chip.addEventListener("click", () => {
+                welcomeSearch(chip.dataset.ticker, chip.dataset.market);
+            });
+        });
+
+        const logoBtn = $("#logo-home");
+        if (logoBtn) logoBtn.addEventListener("click", showWelcome);
 
         $("#search-btn").addEventListener("click", () => { hideAutocomplete(); doSearch(); });
         $("#ticker-input").addEventListener("keydown", e => {
@@ -1500,11 +1841,16 @@
 
         $("#lang-toggle").addEventListener("click", () => { currentLang = currentLang === "en" ? "th" : "en"; applyLanguage(); });
 
-        $$(".btn-indicator").forEach(btn => btn.addEventListener("click", () => {
+        $$(".btn-indicator").forEach(btn => btn.addEventListener("click", (e) => {
+            if (e.target.closest(".ind-info-icon")) return;
             const k = btn.dataset.indicator;
             if (activeIndicators.has(k)) { activeIndicators.delete(k); btn.classList.remove("active"); }
             else { activeIndicators.add(k); btn.classList.add("active"); }
             updateIndicatorVisibility();
+        }));
+        $$(".ind-info-icon[data-edu]").forEach(icon => icon.addEventListener("click", (e) => {
+            e.stopPropagation();
+            showEduPopover(icon.dataset.edu);
         }));
 
         $$(".tab-btn").forEach(btn => btn.addEventListener("click", () => {
@@ -1514,7 +1860,11 @@
             $(`#tab-${btn.dataset.tab}`).classList.add("active");
             if (btn.dataset.tab === "summary" && currentTicker) fetchSummary();
             if (btn.dataset.tab === "valuation" && currentTicker) fetchValuation();
+            if (btn.dataset.tab === "backtest" && currentTicker) { backtestCache = {}; }
         }));
+
+        // Backtest run button
+        $("#bt-run-btn").addEventListener("click", () => { if (currentTicker) { backtestCache = {}; fetchBacktest(); } });
 
         // Portfolio
         $("#portfolio-btn").addEventListener("click", togglePortfolio);

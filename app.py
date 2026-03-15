@@ -1,15 +1,43 @@
-from flask import Flask, render_template, jsonify, request
+import os
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from services.stock_data import fetch_stock_data, normalize_ticker
 from services.technical import compute_indicators
 from services.signals import evaluate_signals
 from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
+from services.backtest import run_backtest
 from services.set_tickers import search_set
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
+
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "")
+
+
+@app.before_request
+def require_password():
+    if not SITE_PASSWORD:
+        return
+    open_paths = ("/login","/static/")
+    if any(request.path.startswith(p) for p in open_paths):
+        return
+    if not session.get("authenticated"):
+        return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if pw == SITE_PASSWORD:
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        error = "Incorrect password"
+    return render_template("login.html", error=error)
 
 
 @app.route("/")
@@ -212,6 +240,32 @@ def get_portfolio():
         "holdings": holdings,
         "sectors": sectors,
     })
+
+
+@app.route("/api/backtest/<ticker>")
+def get_backtest(ticker):
+    market = request.args.get("market", "set")
+    period = request.args.get("period", "2y")
+
+    params = {
+        "sma_short": int(request.args.get("sma_short", 20)),
+        "sma_long": int(request.args.get("sma_long", 50)),
+        "macd_fast": int(request.args.get("macd_fast", 12)),
+        "macd_slow": int(request.args.get("macd_slow", 26)),
+        "macd_signal": int(request.args.get("macd_signal", 9)),
+        "stoch_k": int(request.args.get("stoch_k", 14)),
+        "stoch_smooth": int(request.args.get("stoch_smooth", 3)),
+        "stoch_ob": int(request.args.get("stoch_ob", 80)),
+        "stoch_os": int(request.args.get("stoch_os", 20)),
+    }
+
+    active = request.args.get("active", "sma,macd,stochastic")
+    active_list = [a.strip() for a in active.split(",") if a.strip()]
+
+    result = run_backtest(ticker, market, period, params, active_list)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
 
 
 if __name__ == "__main__":
