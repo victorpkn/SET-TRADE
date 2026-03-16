@@ -1977,6 +1977,8 @@
         const empty = $("#opp-empty");
         loading.classList.add("hidden");
 
+        renderHeatmap(data);
+
         const buys = data.filter(d => d.action === "BUY");
         if (buys.length === 0) {
             grid.innerHTML = "";
@@ -2042,6 +2044,142 @@
         </svg>`;
     }
 
+    // ── Sector Heatmap ──
+    function renderHeatmap(scanData) {
+        const container = $("#hm-treemap");
+        if (!container || !scanData.length) return;
+
+        const sectors = {};
+        scanData.forEach(s => {
+            const sec = s.sector || "Other";
+            if (!sectors[sec]) sectors[sec] = { stocks: [], totalScore: 0 };
+            sectors[sec].stocks.push(s);
+            sectors[sec].totalScore += s.score;
+        });
+
+        const entries = Object.entries(sectors).map(([name, data]) => ({
+            name,
+            count: data.stocks.length,
+            avgScore: data.totalScore / data.stocks.length,
+            stocks: data.stocks,
+        }));
+        entries.sort((a, b) => b.count - a.count);
+
+        const totalStocks = entries.reduce((s, e) => s + e.count, 0);
+
+        container.innerHTML = entries.map(sec => {
+            const pct = (sec.count / totalStocks) * 100;
+            const width = Math.max(pct, 8);
+            const r = sec.avgScore;
+            let bg;
+            if (r >= 1.5) bg = "rgba(63,185,80,0.6)";
+            else if (r >= 0.5) bg = "rgba(63,185,80,0.3)";
+            else if (r > -0.5) bg = "rgba(110,118,129,0.3)";
+            else if (r > -1.5) bg = "rgba(248,81,73,0.3)";
+            else bg = "rgba(248,81,73,0.6)";
+
+            const tickers = sec.stocks.map(s => s.symbol.replace(".BK", "")).join(", ");
+            return `<div class="hm-cell" style="flex-basis:calc(${width}% - 3px);flex-grow:1;background:${bg}"
+                         title="${sec.name}: ${tickers}">
+                <span class="hm-sector">${sec.name}</span>
+                <span class="hm-score">${r >= 0 ? "+" : ""}${r.toFixed(1)} avg</span>
+                <span class="hm-count">${sec.count} stock${sec.count > 1 ? "s" : ""}</span>
+            </div>`;
+        }).join("");
+    }
+
+    // ── Signal Accuracy ──
+    let accHorizon = 5;
+    let accCache = {};
+
+    async function fetchAccuracy(market, horizon) {
+        const key = `${market}:${horizon}`;
+        const loading = $("#acc-loading");
+        const content = $("#acc-content");
+
+        if (accCache[key]) {
+            renderAccuracy(accCache[key]);
+            return;
+        }
+
+        loading.classList.remove("hidden");
+        content.classList.add("hidden");
+
+        try {
+            const resp = await fetch(`/api/accuracy?market=${market}&horizon=${horizon}`);
+            const data = await resp.json();
+            accCache[key] = data;
+            renderAccuracy(data);
+        } catch (e) {
+            loading.classList.add("hidden");
+        }
+    }
+
+    function renderAccuracy(data) {
+        const loading = $("#acc-loading");
+        const content = $("#acc-content");
+        const overview = $("#acc-overview");
+        const barChart = $("#acc-bar-chart");
+
+        loading.classList.add("hidden");
+        content.classList.remove("hidden");
+
+        function ringSvg(pct, color) {
+            const r = 34, circ = 2 * Math.PI * r;
+            const offset = circ - (pct / 100) * circ;
+            return `<div class="acc-ring">
+                <svg viewBox="0 0 80 80">
+                    <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--border)" stroke-width="6"/>
+                    <circle cx="40" cy="40" r="${r}" fill="none" stroke="${color}" stroke-width="6"
+                        stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+                </svg>
+                <span class="acc-ring-label" style="color:${color}">${pct}%</span>
+            </div>`;
+        }
+
+        const oColor = data.overallAccuracy >= 60 ? "var(--green)" : data.overallAccuracy >= 45 ? "var(--yellow)" : "var(--red)";
+        const bColor = data.buyAccuracy >= 60 ? "var(--green)" : data.buyAccuracy >= 45 ? "var(--yellow)" : "var(--red)";
+        const sColor = data.sellAccuracy >= 60 ? "var(--green)" : data.sellAccuracy >= 45 ? "var(--yellow)" : "var(--red)";
+
+        overview.innerHTML = `
+            <div class="acc-card">
+                <div class="acc-card-label">Overall Accuracy</div>
+                ${ringSvg(data.overallAccuracy, oColor)}
+                <div class="acc-card-sub">${data.totalSignals} signals across ${data.stocksAnalyzed} stocks</div>
+            </div>
+            <div class="acc-card">
+                <div class="acc-card-label">Buy Accuracy</div>
+                ${ringSvg(data.buyAccuracy, bColor)}
+                <div class="acc-card-sub">${data.buySignals} buy signals · ${data.horizon}-day horizon</div>
+            </div>
+            <div class="acc-card">
+                <div class="acc-card-label">Sell Accuracy</div>
+                ${ringSvg(data.sellAccuracy, sColor)}
+                <div class="acc-card-sub">${data.sellSignals} sell signals · ${data.horizon}-day horizon</div>
+            </div>`;
+
+        const stocks = (data.perStock || []).slice(0, 12);
+        barChart.innerHTML = stocks.map(s => {
+            const pct = s.accuracy;
+            const color = pct >= 65 ? "var(--green)" : pct >= 50 ? "var(--yellow)" : "var(--red)";
+            return `<div class="acc-bar-row">
+                <span class="acc-bar-ticker" data-ticker="${s.symbol}" data-market="${oppMarket}">${s.symbol}</span>
+                <div class="acc-bar-track">
+                    <div class="acc-bar-fill" style="width:${pct}%;background:${color}">
+                        <span class="acc-bar-pct">${pct}%</span>
+                    </div>
+                </div>
+                <span class="acc-bar-count">${s.total} signals</span>
+            </div>`;
+        }).join("");
+
+        barChart.querySelectorAll(".acc-bar-ticker").forEach(el => {
+            el.addEventListener("click", () => {
+                welcomeSearch(el.dataset.ticker, el.dataset.market);
+            });
+        });
+    }
+
     // ── Init ──
     document.addEventListener("DOMContentLoaded", () => {
         loadSettings();
@@ -2092,13 +2230,22 @@
             });
         }, 400);
 
-        // Opportunities scanner
+        // Opportunities scanner + heatmap + accuracy
         fetchOpportunities(oppMarket);
+        fetchAccuracy(oppMarket, accHorizon);
         $$(".opp-mkt-btn").forEach(btn => {
             btn.addEventListener("click", () => {
                 oppMarket = btn.dataset.market;
                 $$(".opp-mkt-btn").forEach(b => b.classList.toggle("active", b.dataset.market === oppMarket));
                 fetchOpportunities(oppMarket);
+                fetchAccuracy(oppMarket, accHorizon);
+            });
+        });
+        $$(".acc-hz-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                accHorizon = parseInt(btn.dataset.hz);
+                $$(".acc-hz-btn").forEach(b => b.classList.toggle("active", parseInt(b.dataset.hz) === accHorizon));
+                fetchAccuracy(oppMarket, accHorizon);
             });
         });
 

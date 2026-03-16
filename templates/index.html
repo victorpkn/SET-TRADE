@@ -168,6 +168,42 @@
                     <div class="opp-empty hidden" id="opp-empty">No strong buy signals found right now. Check back later.</div>
                 </div>
 
+                <!-- Sector Heatmap -->
+                <div class="heatmap-section" id="heatmap-section">
+                    <div class="heatmap-header">
+                        <div class="opp-title-row">
+                            <svg class="hm-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                            <h3 class="opp-title">Sector Heatmap</h3>
+                        </div>
+                    </div>
+                    <p class="opp-sub">Market signal strength by sector — green is bullish, red is bearish, size reflects stock count.</p>
+                    <div class="hm-treemap" id="hm-treemap"></div>
+                </div>
+
+                <!-- Signal Accuracy -->
+                <div class="accuracy-section" id="accuracy-section">
+                    <div class="accuracy-header">
+                        <div class="opp-title-row">
+                            <svg class="acc-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            <h3 class="opp-title">Signal Accuracy</h3>
+                        </div>
+                        <div class="acc-horizon-toggle">
+                            <button class="acc-hz-btn" data-hz="3">3-Day</button>
+                            <button class="acc-hz-btn active" data-hz="5">5-Day</button>
+                            <button class="acc-hz-btn" data-hz="10">10-Day</button>
+                        </div>
+                    </div>
+                    <p class="opp-sub">How often our BUY/SELL signals predicted the right price direction over the last 90 days.</p>
+                    <div class="acc-loading" id="acc-loading">
+                        <div class="spinner"></div>
+                        <span>Analyzing signal history...</span>
+                    </div>
+                    <div class="acc-content hidden" id="acc-content">
+                        <div class="acc-overview" id="acc-overview"></div>
+                        <div class="acc-bar-chart" id="acc-bar-chart"></div>
+                    </div>
+                </div>
+
                 <div class="welcome-cta">
                     <div class="welcome-search-glow">
                         <input type="text" id="welcome-search" placeholder="Try searching PTT, AAPL, or AOT..." autocomplete="off" spellcheck="false">

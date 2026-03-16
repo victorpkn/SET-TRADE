@@ -7,7 +7,7 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
-from services.scanner import scan_market, scan_defaults, DEFAULT_SCAN_SET, DEFAULT_SCAN_US
+from services.scanner import scan_market, scan_defaults, compute_signal_accuracy, compute_market_accuracy, DEFAULT_SCAN_SET, DEFAULT_SCAN_US
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -252,6 +252,25 @@ def api_scan():
         data = scan_market(tickers, market)
     else:
         data = scan_defaults(market)
+    return jsonify(data)
+
+
+@app.route("/api/accuracy")
+def api_accuracy():
+    market = request.args.get("market", "set")
+    horizon = int(request.args.get("horizon", 5))
+    data = compute_market_accuracy(market, horizon)
+    return jsonify(data)
+
+
+@app.route("/api/accuracy/<ticker>")
+def api_accuracy_ticker(ticker):
+    market = request.args.get("market", "set")
+    horizon = int(request.args.get("horizon", 5))
+    symbol = normalize_ticker(ticker, market)
+    data = compute_signal_accuracy(symbol, 90, horizon)
+    if not data:
+        return jsonify({"error": "Could not compute accuracy"}), 404
     return jsonify(data)
 
 
