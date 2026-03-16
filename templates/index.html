@@ -147,6 +147,27 @@
                         <span class="wf-arrow">→</span>
                     </div>
                 </div>
+                <!-- Buying Opportunities -->
+                <div class="opp-section" id="opp-section">
+                    <div class="opp-header">
+                        <div class="opp-title-row">
+                            <svg class="opp-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                            <h3 class="opp-title">Buying Opportunities</h3>
+                        </div>
+                        <div class="opp-market-toggle">
+                            <button class="opp-mkt-btn active" data-market="set">🇹🇭 SET</button>
+                            <button class="opp-mkt-btn" data-market="us">🇺🇸 US</button>
+                        </div>
+                    </div>
+                    <p class="opp-sub">Stocks showing strong buy signals right now, based on SMA, MACD &amp; Stochastic analysis.</p>
+                    <div class="opp-loading" id="opp-loading">
+                        <div class="spinner"></div>
+                        <span>Scanning markets...</span>
+                    </div>
+                    <div class="opp-grid" id="opp-grid"></div>
+                    <div class="opp-empty hidden" id="opp-empty">No strong buy signals found right now. Check back later.</div>
+                </div>
+
                 <div class="welcome-cta">
                     <div class="welcome-search-glow">
                         <input type="text" id="welcome-search" placeholder="Try searching PTT, AAPL, or AOT..." autocomplete="off" spellcheck="false">

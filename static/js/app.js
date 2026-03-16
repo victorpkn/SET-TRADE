@@ -138,9 +138,12 @@
                 }
             }
             const posBadge = pos ? `<span class="wl-pos-badge">POS</span>` : "";
+            const wlSig = wlSignals[item.displayTicker.toUpperCase()];
+            const sigBadge = wlSig === "BUY" ? `<span class="wl-sig-badge buy">BUY</span>`
+                           : wlSig === "SELL" ? `<span class="wl-sig-badge sell">SELL</span>` : "";
             return `<div class="wl-item ${isActive ? "active" : ""}" data-idx="${idx}">
                 <div class="wl-info">
-                    <div class="wl-ticker">${item.displayTicker}${posBadge}</div>
+                    <div class="wl-ticker">${item.displayTicker}${posBadge}${sigBadge}</div>
                     <div class="wl-price">${item.price ? item.price.toFixed(2) : "..."} <span class="wl-change ${chgClass}">${chgSign}${(item.changePct || 0).toFixed(1)}%</span></div>
                     ${pnlHtml}
                 </div>
@@ -190,6 +193,8 @@
         svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
     }
 
+    let wlSignals = {};
+
     async function refreshWatchlistData() {
         for (let i = 0; i < watchlist.length; i++) {
             const item = watchlist[i];
@@ -204,6 +209,30 @@
             } catch {}
         }
         saveWatchlist();
+        renderWatchlist();
+        refreshWatchlistSignals();
+    }
+
+    async function refreshWatchlistSignals() {
+        if (!watchlist.length) return;
+        const byMarket = {};
+        watchlist.forEach(w => {
+            const m = w.market || "set";
+            if (!byMarket[m]) byMarket[m] = [];
+            byMarket[m].push(w.displayTicker);
+        });
+        for (const [market, tickers] of Object.entries(byMarket)) {
+            try {
+                const res = await fetch(`/api/scan?market=${market}&tickers=${tickers.join(",")}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    data.forEach(d => {
+                        const clean = d.symbol.replace(".BK", "");
+                        wlSignals[clean] = d.action;
+                    });
+                }
+            } catch {}
+        }
         renderWatchlist();
     }
 
@@ -1843,64 +1872,66 @@
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
         const rays = [];
-        const RAY_COUNT = 120;
-        let w, h;
+        const RAY_COUNT = 200;
+        let w, h, diag;
 
         function resize() {
             const rect = canvas.parentElement.getBoundingClientRect();
             w = canvas.width = rect.width;
             h = canvas.height = rect.height;
+            diag = Math.sqrt(w * w + h * h) * 0.55;
         }
         resize();
         window.addEventListener("resize", resize);
 
         for (let i = 0; i < RAY_COUNT; i++) {
-            const angle = (Math.random() * Math.PI) - Math.PI;
-            const speed = 0.15 + Math.random() * 0.4;
-            const maxLen = 80 + Math.random() * 220;
-            rays.push({ angle, speed, len: Math.random() * maxLen, maxLen, phase: Math.random() * Math.PI * 2 });
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 0.2 + Math.random() * 0.6;
+            const lenFrac = 0.4 + Math.random() * 0.6;
+            rays.push({ angle, speed, lenFrac, len: Math.random(), phase: Math.random() * Math.PI * 2 });
         }
 
         function draw() {
             ctx.clearRect(0, 0, w, h);
             const cx = w / 2;
-            const cy = h * 0.92;
+            const cy = h / 2;
             const time = Date.now() * 0.001;
 
             for (const r of rays) {
+                const maxLen = diag * r.lenFrac;
                 r.len += r.speed;
-                if (r.len > r.maxLen) { r.len = 0; r.phase = Math.random() * Math.PI * 2; }
+                if (r.len > maxLen) { r.len = 0; r.phase = Math.random() * Math.PI * 2; }
 
-                const progress = r.len / r.maxLen;
-                const wobble = Math.sin(time * 0.5 + r.phase) * 0.03;
+                const progress = r.len / maxLen;
+                const wobble = Math.sin(time * 0.4 + r.phase) * 0.02;
                 const a = r.angle + wobble;
                 const x2 = cx + Math.cos(a) * r.len;
                 const y2 = cy + Math.sin(a) * r.len;
 
-                const alpha = progress < 0.1 ? progress * 10 : progress > 0.8 ? (1 - progress) * 5 : 1;
-                const hue = 260 + (r.angle + Math.PI) / Math.PI * 40;
-                const sat = 60 + progress * 30;
-                const light = 55 + progress * 20;
+                const alpha = progress < 0.05 ? progress * 20 : progress > 0.75 ? (1 - progress) * 4 : 1;
+                const hue = 250 + (r.angle / (Math.PI * 2)) * 60;
+                const sat = 55 + progress * 35;
+                const light = 50 + progress * 25;
 
                 ctx.beginPath();
-                ctx.moveTo(cx, cy);
+                ctx.moveTo(cx + Math.cos(a) * 2, cy + Math.sin(a) * 2);
                 ctx.lineTo(x2, y2);
-                ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha * 0.35})`;
-                ctx.lineWidth = 0.8;
+                ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha * 0.3})`;
+                ctx.lineWidth = 0.6 + progress * 0.4;
                 ctx.stroke();
 
                 ctx.beginPath();
-                ctx.arc(x2, y2, 1.5 + progress * 1.5, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${hue + 20}, ${sat + 10}%, ${light + 10}%, ${alpha * 0.6})`;
+                ctx.arc(x2, y2, 1 + progress * 2, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue + 15}, ${sat + 10}%, ${light + 10}%, ${alpha * 0.55})`;
                 ctx.fill();
             }
 
-            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
-            grd.addColorStop(0, "rgba(124, 58, 237, 0.12)");
-            grd.addColorStop(0.5, "rgba(88, 166, 255, 0.04)");
+            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 100);
+            grd.addColorStop(0, "rgba(124, 58, 237, 0.1)");
+            grd.addColorStop(0.4, "rgba(88, 166, 255, 0.04)");
             grd.addColorStop(1, "transparent");
             ctx.fillStyle = grd;
-            ctx.fillRect(cx - 60, cy - 60, 120, 120);
+            ctx.fillRect(cx - 100, cy - 100, 200, 200);
 
             burstAnim = requestAnimationFrame(draw);
         }
@@ -1908,6 +1939,108 @@
     }
 
     function stopBurst() { if (burstAnim) { cancelAnimationFrame(burstAnim); burstAnim = null; } }
+
+    // ── Opportunities Scanner ──
+    let oppMarket = "set";
+    let oppCache = {};
+
+    async function fetchOpportunities(market) {
+        const grid = $("#opp-grid");
+        const loading = $("#opp-loading");
+        const empty = $("#opp-empty");
+        if (!grid) return;
+
+        if (oppCache[market]) {
+            renderOpportunities(oppCache[market], market);
+            return;
+        }
+
+        grid.innerHTML = "";
+        empty.classList.add("hidden");
+        loading.classList.remove("hidden");
+
+        try {
+            const resp = await fetch(`/api/scan?market=${market}`);
+            const data = await resp.json();
+            oppCache[market] = data;
+            renderOpportunities(data, market);
+        } catch (e) {
+            loading.classList.add("hidden");
+            empty.textContent = "Failed to scan markets. Please try again.";
+            empty.classList.remove("hidden");
+        }
+    }
+
+    function renderOpportunities(data, market) {
+        const grid = $("#opp-grid");
+        const loading = $("#opp-loading");
+        const empty = $("#opp-empty");
+        loading.classList.add("hidden");
+
+        const buys = data.filter(d => d.action === "BUY");
+        if (buys.length === 0) {
+            grid.innerHTML = "";
+            empty.classList.remove("hidden");
+            return;
+        }
+
+        empty.classList.add("hidden");
+        grid.innerHTML = buys.slice(0, 8).map(stock => {
+            const chgClass = stock.dayChange >= 0 ? "up" : "down";
+            const chgSign = stock.dayChange >= 0 ? "+" : "";
+            const sparkSvg = miniSparkSvg(stock.sparkline, 120, 28, stock.dayChange >= 0 ? "#3fb950" : "#f85149");
+            const pills = stock.signals.map(s =>
+                `<span class="opp-pill ${s.sig.toLowerCase()}">${s.ind}</span>`
+            ).join("");
+            const scorePct = Math.max(0, Math.min(100, ((stock.score + 3) / 6) * 100));
+            const barColor = stock.score >= 2 ? "var(--green)" : stock.score >= 1 ? "var(--yellow)" : "var(--text-secondary)";
+            const cleanSymbol = stock.symbol.replace(".BK", "");
+            return `<div class="opp-card" data-ticker="${cleanSymbol}" data-market="${market}">
+                <div class="opp-card-top">
+                    <div>
+                        <span class="opp-ticker">${cleanSymbol}</span>
+                        <span class="opp-name">${stock.name}</span>
+                    </div>
+                    <span class="opp-signal-badge buy">${stock.score}/3 Buy</span>
+                </div>
+                <div class="opp-sparkline">${sparkSvg}</div>
+                <div class="opp-card-bottom">
+                    <span class="opp-price">${stock.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span class="opp-change ${chgClass}">${chgSign}${stock.dayChange}%</span>
+                </div>
+                <div class="opp-pills">${pills}</div>
+                <div class="opp-score-bar"><div class="opp-score-fill" style="width:${scorePct}%;background:${barColor}"></div></div>
+            </div>`;
+        }).join("");
+
+        grid.querySelectorAll(".opp-card").forEach(card => {
+            card.addEventListener("click", () => {
+                const t = card.dataset.ticker;
+                const m = card.dataset.market;
+                welcomeSearch(t, m);
+            });
+        });
+    }
+
+    function miniSparkSvg(data, w, h, color) {
+        if (!data || data.length < 2) return "";
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const range = max - min || 1;
+        const points = data.map((v, i) => {
+            const x = (i / (data.length - 1)) * w;
+            const y = h - ((v - min) / range) * (h - 2) - 1;
+            return `${x},${y}`;
+        }).join(" ");
+        return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+            <defs><linearGradient id="spk-${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+            </linearGradient></defs>
+            <polygon points="${points} ${w},${h} 0,${h}" fill="url(#spk-${color.replace('#','')})" />
+            <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5"/>
+        </svg>`;
+    }
 
     // ── Init ──
     document.addEventListener("DOMContentLoaded", () => {
@@ -1958,6 +2091,16 @@
                 setTimeout(() => c.classList.add("revealed"), 200 + i * 100);
             });
         }, 400);
+
+        // Opportunities scanner
+        fetchOpportunities(oppMarket);
+        $$(".opp-mkt-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                oppMarket = btn.dataset.market;
+                $$(".opp-mkt-btn").forEach(b => b.classList.toggle("active", b.dataset.market === oppMarket));
+                fetchOpportunities(oppMarket);
+            });
+        });
 
         const welcomeSearchInput = $("#welcome-search");
         if (welcomeSearchInput) {

@@ -7,6 +7,7 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
+from services.scanner import scan_market, scan_defaults, DEFAULT_SCAN_SET, DEFAULT_SCAN_US
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -240,6 +241,18 @@ def get_portfolio():
         "holdings": holdings,
         "sectors": sectors,
     })
+
+
+@app.route("/api/scan")
+def api_scan():
+    market = request.args.get("market", "set")
+    tickers_param = request.args.get("tickers", "")
+    if tickers_param:
+        tickers = [t.strip() for t in tickers_param.split(",") if t.strip()]
+        data = scan_market(tickers, market)
+    else:
+        data = scan_defaults(market)
+    return jsonify(data)
 
 
 @app.route("/api/backtest/<ticker>")
