@@ -5,7 +5,10 @@ from services.technical import compute_indicators
 
 
 def run_backtest(ticker: str, market: str, period: str,
-                 params: dict, active_indicators: list) -> dict:
+                 params: dict, active_indicators: list,
+                 sensitivity: str = "normal",
+                 min_hold: int = 0, cooldown: int = 0,
+                 confirm_days: int = 1) -> dict:
     data = fetch_stock_data(ticker, period, market)
     if "error" in data:
         return data
@@ -17,10 +20,13 @@ def run_backtest(ticker: str, market: str, period: str,
     close = df["Close"]
     dates = df["date"].dt.strftime("%Y-%m-%d").tolist()
 
-    day_signals = _compute_daily_signals(raw, close, params, active_indicators)
+    day_signals = _compute_daily_signals(
+        raw, close, params, active_indicators, sensitivity
+    )
 
     trades, equity_curve, buy_hold_curve = _simulate(
-        close.values.tolist(), dates, day_signals
+        close.values.tolist(), dates, day_signals,
+        min_hold=min_hold, cooldown=cooldown, confirm_days=confirm_days
     )
 
     metrics = _compute_metrics(trades, equity_curve, buy_hold_curve, close.values.tolist())
@@ -30,6 +36,10 @@ def run_backtest(ticker: str, market: str, period: str,
         "name": data.get("name", ticker),
         "period": period,
         "activeIndicators": active_indicators,
+        "sensitivity": sensitivity,
+        "minHold": min_hold,
+        "cooldown": cooldown,
+        "confirmDays": confirm_days,
         "trades": trades,
         "metrics": metrics,
         "equityCurve": equity_curve,
@@ -37,7 +47,7 @@ def run_backtest(ticker: str, market: str, period: str,
     }
 
 
-def _compute_daily_signals(raw, close, params, active):
+def _compute_daily_signals(raw, close, params, active, sensitivity="normal"):
     sma_short = raw["sma_short"]
     sma_long = raw["sma_long"]
     macd_line = raw["macd_line"]
@@ -88,17 +98,35 @@ def _compute_daily_signals(raw, close, params, active):
 
         if count == 0:
             signals.append("HOLD")
-        elif score >= 2:
-            signals.append("BUY")
-        elif score <= -2:
-            signals.append("SELL")
         else:
-            signals.append("HOLD")
+            action = _apply_sensitivity(score, count, sensitivity)
+            signals.append(action)
 
     return signals
 
 
-def _simulate(prices, dates, signals):
+def _apply_sensitivity(score, count, sensitivity):
+    if sensitivity == "aggressive":
+        if score > 0:
+            return "BUY"
+        elif score < 0:
+            return "SELL"
+        return "HOLD"
+    elif sensitivity == "conservative":
+        if score == count:
+            return "BUY"
+        elif score == -count:
+            return "SELL"
+        return "HOLD"
+    else:
+        if score > 0:
+            return "BUY"
+        elif score < 0:
+            return "SELL"
+        return "HOLD"
+
+
+def _simulate(prices, dates, signals, min_hold=0, cooldown=0, confirm_days=1):
     trades = []
     equity_curve = []
     buy_hold_curve = []
@@ -109,18 +137,33 @@ def _simulate(prices, dates, signals):
     entry_date = ""
     entry_idx = 0
     cumulative_return = 0.0
+    last_exit_idx = -999
+    confirm_days = max(1, confirm_days)
+
+    def _confirmed(idx, target_sig):
+        for j in range(idx - confirm_days + 1, idx + 1):
+            if j < 0 or j >= len(signals) or signals[j] != target_sig:
+                return False
+        return True
 
     for i, (price, date, sig) in enumerate(zip(prices, dates, signals)):
         bh_return = ((price - initial_price) / initial_price) * 100
         buy_hold_curve.append({"time": date, "value": round(bh_return, 2)})
 
-        if sig == "BUY" and not in_position:
+        can_buy = (not in_position
+                   and (i - last_exit_idx) > cooldown
+                   and _confirmed(i, "BUY"))
+        can_sell = (in_position
+                    and (i - entry_idx) >= min_hold
+                    and _confirmed(i, "SELL"))
+
+        if sig == "BUY" and can_buy:
             in_position = True
             entry_price = price
             entry_date = date
             entry_idx = i
 
-        elif sig == "SELL" and in_position:
+        elif sig == "SELL" and can_sell:
             pnl_pct = ((price - entry_price) / entry_price) * 100
             cumulative_return += pnl_pct
             trades.append({
@@ -133,6 +176,7 @@ def _simulate(prices, dates, signals):
                 "result": "win" if pnl_pct > 0 else "loss",
             })
             in_position = False
+            last_exit_idx = i
 
         equity_curve.append({"time": date, "value": round(cumulative_return, 2)})
 

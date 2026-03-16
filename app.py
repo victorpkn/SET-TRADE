@@ -261,8 +261,13 @@ def get_backtest(ticker):
 
     active = request.args.get("active", "sma,macd,stochastic")
     active_list = [a.strip() for a in active.split(",") if a.strip()]
+    sensitivity = request.args.get("sensitivity", "normal")
+    min_hold = int(request.args.get("min_hold", 0))
+    cooldown_val = int(request.args.get("cooldown", 0))
+    confirm_days = int(request.args.get("confirm_days", 1))
 
-    result = run_backtest(ticker, market, period, params, active_list)
+    result = run_backtest(ticker, market, period, params, active_list,
+                          sensitivity, min_hold, cooldown_val, confirm_days)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)

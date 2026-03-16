@@ -86,6 +86,7 @@
             <!-- Welcome Home -->
             <section id="welcome" class="welcome">
                 <div class="welcome-mesh"></div>
+                <canvas id="burst-canvas" class="burst-canvas"></canvas>
                 <div class="welcome-hero">
                     <div class="welcome-badge">Stock Intelligence Platform</div>
                     <h2 class="welcome-title">Navigate the market<br>with <span class="welcome-gradient">precision</span></h2>
@@ -97,47 +98,53 @@
                     </div>
                 </div>
                 <div class="welcome-features" id="welcome-features">
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="signals">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         </div>
                         <h4>Smart Signals</h4>
                         <p>Buy, Hold, or Sell recommendations powered by SMA crossovers, MACD, and Stochastic analysis.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="summary">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                         </div>
                         <h4>Health Check</h4>
                         <p>Key financial ratios, radar chart scores, and analyst consensus at a glance.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="valuation">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
                         </div>
                         <h4>DCF Valuation</h4>
                         <p>Discounted cash flow models with adjustable assumptions and sensitivity tables.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="portfolio">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
                         </div>
                         <h4>Portfolio Tracker</h4>
                         <p>Track all your positions with live P&L, sector allocation, and weighted metrics.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="search">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         </div>
                         <h4>Dual Markets</h4>
                         <p>Analyze Thai SET stocks and US equities. Switch markets with one click.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
-                    <div class="wf-card" data-reveal>
+                    <div class="wf-card" data-reveal data-action="compare">
                         <div class="wf-icon">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
                         </div>
                         <h4>Side-by-Side</h4>
                         <p>Compare two stocks head-to-head on every metric. Find the better investment.</p>
+                        <span class="wf-arrow">→</span>
                     </div>
                 </div>
                 <div class="welcome-cta">
@@ -345,14 +352,90 @@
                         <span data-i18n="loading">Fetching data...</span>
                     </div>
                     <div id="backtest-content">
-                        <div class="bt-hero">
-                            <div class="bt-hero-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        <!-- Strategy Config Panel -->
+                        <div class="bt-config-card">
+                            <div class="bt-config-header">
+                                <div class="bt-config-icon">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                                </div>
+                                <div>
+                                    <h3 data-i18n="bt_title">Strategy Backtest</h3>
+                                    <p class="bt-config-sub" data-i18n="bt_subtitle">Test how your signal settings would have performed historically</p>
+                                </div>
                             </div>
-                            <h3 data-i18n="bt_title">Strategy Backtest</h3>
-                            <p class="bt-hero-sub" data-i18n="bt_subtitle">See how your signal settings would have performed historically</p>
-                            <button class="btn-primary btn-sm" id="bt-run-btn" data-i18n="bt_run">Run Backtest</button>
+
+                            <div class="bt-config-body">
+                                <!-- Row 1: Stock + Period + Sensitivity -->
+                                <div class="bt-config-row">
+                                    <div class="bt-config-item">
+                                        <span class="bt-config-label" data-i18n="bt_stock">Stock</span>
+                                        <span class="bt-config-value" id="bt-cfg-ticker">—</span>
+                                    </div>
+                                    <div class="bt-config-item">
+                                        <span class="bt-config-label" data-i18n="bt_period_label">Period</span>
+                                        <select id="bt-cfg-period" class="bt-select">
+                                            <option value="1mo">1 Month</option>
+                                            <option value="3mo">3 Months</option>
+                                            <option value="6mo" selected>6 Months</option>
+                                            <option value="1y">1 Year</option>
+                                            <option value="2y">2 Years</option>
+                                            <option value="5y">5 Years</option>
+                                        </select>
+                                    </div>
+                                    <div class="bt-config-item">
+                                        <span class="bt-config-label" data-i18n="bt_sensitivity_label">Sensitivity</span>
+                                        <select id="bt-cfg-sensitivity" class="bt-select">
+                                            <option value="aggressive">Aggressive</option>
+                                            <option value="normal" selected>Normal</option>
+                                            <option value="conservative">Conservative</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Row 2: Indicators -->
+                                <div class="bt-config-section">
+                                    <span class="bt-config-label" data-i18n="indicators">Indicators</span>
+                                    <div class="bt-ind-toggles">
+                                        <label class="bt-toggle"><input type="checkbox" id="bt-ind-sma" checked><span>SMA Crossover</span></label>
+                                        <label class="bt-toggle"><input type="checkbox" id="bt-ind-macd" checked><span>MACD</span></label>
+                                        <label class="bt-toggle"><input type="checkbox" id="bt-ind-stochastic" checked><span>Stochastic</span></label>
+                                    </div>
+                                </div>
+
+                                <!-- Row 3: Trading Frequency -->
+                                <div class="bt-config-section">
+                                    <span class="bt-config-label" data-i18n="bt_frequency">Trading Rules</span>
+                                    <div class="bt-freq-grid">
+                                        <div class="bt-freq-item">
+                                            <label for="bt-min-hold" data-i18n="bt_min_hold">Min hold (days)</label>
+                                            <input type="number" id="bt-min-hold" value="0" min="0" max="120" step="1" class="bt-input">
+                                        </div>
+                                        <div class="bt-freq-item">
+                                            <label for="bt-cooldown" data-i18n="bt_cooldown">Cooldown (days)</label>
+                                            <input type="number" id="bt-cooldown" value="0" min="0" max="120" step="1" class="bt-input">
+                                        </div>
+                                        <div class="bt-freq-item">
+                                            <label for="bt-confirm" data-i18n="bt_confirm">Confirm (days)</label>
+                                            <input type="number" id="bt-confirm" value="1" min="1" max="10" step="1" class="bt-input">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Rules description -->
+                                <div class="bt-config-rules" id="bt-cfg-rules"></div>
+                            </div>
+
+                            <button class="btn-primary" id="bt-run-btn" data-i18n="bt_run">Run Backtest</button>
                         </div>
+
+                        <!-- No trades state -->
+                        <div id="bt-empty" class="bt-empty hidden">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                            <h4 data-i18n="bt_no_trades_title">No trades generated</h4>
+                            <p id="bt-empty-msg" data-i18n="bt_no_trades_msg">Your current settings didn't produce any buy/sell signals in this period. Try a longer timeframe, switch to Aggressive sensitivity, or enable more indicators.</p>
+                        </div>
+
+                        <!-- Results -->
                         <div id="bt-results" class="hidden">
                             <div class="bt-strategy-card" id="bt-strategy-label"></div>
                             <div class="bt-metrics-grid" id="bt-metrics"></div>

@@ -506,7 +506,7 @@
         let action;
         if (settings.sensitivity === "aggressive") { action = score > 0 ? "BUY" : score < 0 ? "SELL" : "HOLD"; }
         else if (settings.sensitivity === "conservative") { action = score === filtered.length ? "BUY" : score === -filtered.length ? "SELL" : "HOLD"; }
-        else { const h = filtered.length / 2; action = score >= h ? "BUY" : score <= -h ? "SELL" : "HOLD"; }
+        else { action = score > 0 ? "BUY" : score < 0 ? "SELL" : "HOLD"; }
         return { action, reasons: filtered, score, maxScore: filtered.length, allReasons: raw.reasons };
     }
 
@@ -533,7 +533,15 @@
         marker.style.background = cls === "buy" ? "var(--green)" : cls === "sell" ? "var(--red)" : "var(--yellow)";
         marker.style.boxShadow = `0 0 0 2px ${cls === "buy" ? "var(--green)" : cls === "sell" ? "var(--red)" : "var(--yellow)"}, 0 2px 8px rgba(0,0,0,0.4)`;
 
-        scoreEl.textContent = `Score: ${computed.score > 0 ? "+" : ""}${computed.score} / ${maxPossible}`;
+        const activeCount = computed.reasons ? computed.reasons.length : 0;
+        const buyCount = computed.reasons ? computed.reasons.filter(r => r.signal === "BUY").length : 0;
+        const sellCount = computed.reasons ? computed.reasons.filter(r => r.signal === "SELL").length : 0;
+        const holdCount = activeCount - buyCount - sellCount;
+        scoreEl.innerHTML = `<span class="score-pills">`
+            + (buyCount > 0 ? `<span class="score-pill pill-buy">${buyCount} Buy</span>` : "")
+            + (holdCount > 0 ? `<span class="score-pill pill-hold">${holdCount} Hold</span>` : "")
+            + (sellCount > 0 ? `<span class="score-pill pill-sell">${sellCount} Sell</span>` : "")
+            + `</span>`;
 
         renderIndicatorCards(computed);
     }
@@ -1117,19 +1125,79 @@
     let btChart = null;
     let backtestCache = {};
 
+    function getBtConfig() {
+        const period = $("#bt-cfg-period") ? $("#bt-cfg-period").value : currentPeriod;
+        const sensitivity = $("#bt-cfg-sensitivity") ? $("#bt-cfg-sensitivity").value : settings.sensitivity;
+        const inds = [];
+        if ($("#bt-ind-sma") && $("#bt-ind-sma").checked) inds.push("sma");
+        if ($("#bt-ind-macd") && $("#bt-ind-macd").checked) inds.push("macd");
+        if ($("#bt-ind-stochastic") && $("#bt-ind-stochastic").checked) inds.push("stochastic");
+        const minHold = parseInt($("#bt-min-hold") ? $("#bt-min-hold").value : 0) || 0;
+        const cooldown = parseInt($("#bt-cooldown") ? $("#bt-cooldown").value : 0) || 0;
+        const confirmDays = parseInt($("#bt-confirm") ? $("#bt-confirm").value : 1) || 1;
+        return { period, sensitivity, inds, minHold, cooldown, confirmDays };
+    }
+
+    function populateBtConfig() {
+        const cfgTicker = $("#bt-cfg-ticker");
+        if (!cfgTicker) return;
+        cfgTicker.textContent = currentTicker ? currentTicker.toUpperCase() : "\u2014";
+
+        const periodSel = $("#bt-cfg-period");
+        if (periodSel) periodSel.value = currentPeriod;
+
+        const sensSel = $("#bt-cfg-sensitivity");
+        if (sensSel) sensSel.value = settings.sensitivity;
+
+        if ($("#bt-ind-sma")) $("#bt-ind-sma").checked = activeIndicators.has("sma");
+        if ($("#bt-ind-macd")) $("#bt-ind-macd").checked = activeIndicators.has("macd");
+        if ($("#bt-ind-stochastic")) $("#bt-ind-stochastic").checked = activeIndicators.has("stochastic");
+
+        updateBtRules();
+    }
+
+    function updateBtRules() {
+        const cfg = getBtConfig();
+        const cfgRules = $("#bt-cfg-rules");
+        if (!cfgRules) return;
+
+        const nameMap = { sma: "SMA Crossover", macd: "MACD", stochastic: "Stochastic" };
+        const indNames = cfg.inds.map(k => nameMap[k] || k);
+
+        let ruleText = "";
+        if (indNames.length === 0) {
+            ruleText = t("bt_rule_none");
+        } else if (cfg.sensitivity === "aggressive") {
+            ruleText = t("bt_rule_aggressive").replace("{ind}", indNames.join(", "));
+        } else if (cfg.sensitivity === "conservative") {
+            ruleText = t("bt_rule_conservative").replace("{ind}", indNames.join(" + "));
+        } else {
+            ruleText = t("bt_rule_normal").replace("{ind}", indNames.join(", "));
+        }
+
+        const extras = [];
+        if (cfg.minHold > 0) extras.push(t("bt_rule_hold").replace("{n}", cfg.minHold));
+        if (cfg.cooldown > 0) extras.push(t("bt_rule_cooldown").replace("{n}", cfg.cooldown));
+        if (cfg.confirmDays > 1) extras.push(t("bt_rule_confirm").replace("{n}", cfg.confirmDays));
+        if (extras.length) ruleText += " " + extras.join(" ");
+
+        cfgRules.innerHTML = `<div class="bt-rule-box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span>${ruleText}</span></div>`;
+    }
+
     async function fetchBacktest() {
         if (!currentTicker) return;
-        const cacheKey = `${currentTicker}-${currentMarket}-${currentPeriod}`;
-        if (backtestCache[cacheKey]) { renderBacktest(backtestCache[cacheKey]); return; }
+        const cfg = getBtConfig();
+        if (cfg.inds.length === 0) { $("#bt-empty").classList.remove("hidden"); $("#bt-results").classList.add("hidden"); return; }
         $("#backtest-loading").classList.remove("hidden");
         $("#bt-results").classList.add("hidden");
+        $("#bt-empty").classList.add("hidden");
         try {
-            const active = Array.from(activeIndicators).join(",");
-            const qs = `market=${currentMarket}&period=${currentPeriod}&active=${active}` + settingsToQuery();
+            const qs = `market=${currentMarket}&period=${cfg.period}&active=${cfg.inds.join(",")}&sensitivity=${cfg.sensitivity}`
+                + `&min_hold=${cfg.minHold}&cooldown=${cfg.cooldown}&confirm_days=${cfg.confirmDays}`
+                + settingsToQuery();
             const res = await fetch(`/api/backtest/${encodeURIComponent(currentTicker)}?${qs}`);
             if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Backtest failed"); }
             const data = await res.json();
-            backtestCache[cacheKey] = data;
             renderBacktest(data);
         } catch (err) {
             $("#bt-results").classList.remove("hidden");
@@ -1142,40 +1210,48 @@
     function renderBacktest(data) {
         const m = data.metrics;
         const trades = data.trades || [];
+        const closedTrades = trades.filter(tr => tr.result !== "open");
+
+        if (closedTrades.length === 0) {
+            $("#bt-results").classList.add("hidden");
+            $("#bt-empty").classList.remove("hidden");
+            return;
+        }
+        $("#bt-empty").classList.add("hidden");
+
         const activeNames = (data.activeIndicators || []).map(k => k === "sma" ? "SMA" : k === "macd" ? "MACD" : "Stochastic");
+        const sensLabel = { conservative: t("conservative"), normal: t("normal"), aggressive: t("aggressive") }[data.sensitivity] || data.sensitivity || "";
 
-        // Strategy label
         const stratEl = $("#bt-strategy-label");
-        stratEl.innerHTML = `<span class="bt-strat-name">${activeNames.join(" + ")}</span>` +
-            `<span class="bt-strat-ticker">${data.name || data.ticker}</span>` +
-            `<span class="bt-strat-period">${data.period.toUpperCase()}</span>` +
-            `<span class="bt-strat-trades">${m.numTrades} ${t("bt_trades_count")}</span>`;
+        stratEl.innerHTML = `<span class="bt-strat-name">${activeNames.join(" + ")}</span>`
+            + `<span class="bt-strat-ticker">${data.name || data.ticker}</span>`
+            + `<span class="bt-strat-period">${data.period.toUpperCase()}</span>`
+            + (sensLabel ? `<span class="bt-strat-sens">${sensLabel}</span>` : "")
+            + `<span class="bt-strat-trades">${m.numTrades} ${t("bt_trades_count")}</span>`;
 
-        // Metrics grid
         const metricsEl = $("#bt-metrics");
+        const verdict = m.totalReturn > m.buyHoldReturn ? "green" : m.totalReturn < m.buyHoldReturn ? "red" : "neutral";
         const metrics = [
-            { key: "bt_total_return", val: fmtPct(m.totalReturn), color: m.totalReturn >= 0 ? "green" : "red" },
-            { key: "bt_buy_hold", val: fmtPct(m.buyHoldReturn), color: m.buyHoldReturn >= 0 ? "green" : "red" },
-            { key: "bt_outperformance", val: fmtPct(m.outperformance), color: m.outperformance >= 0 ? "green" : "red" },
+            { key: "bt_total_return", val: fmtPct(m.totalReturn), color: m.totalReturn >= 0 ? "green" : "red", big: true },
+            { key: "bt_buy_hold", val: fmtPct(m.buyHoldReturn), color: m.buyHoldReturn >= 0 ? "green" : "red", big: true },
+            { key: "bt_outperformance", val: fmtPct(m.outperformance), color: verdict, big: true },
             { key: "bt_win_rate", val: `${m.winRate}%`, color: m.winRate >= 50 ? "green" : "red" },
             { key: "bt_avg_win", val: fmtPct(m.avgWin), color: "green" },
             { key: "bt_avg_loss", val: fmtPct(m.avgLoss), color: "red" },
             { key: "bt_max_dd", val: fmtPct(-m.maxDrawdown), color: "red" },
             { key: "bt_sharpe", val: m.sharpe.toFixed(2), color: m.sharpe >= 1 ? "green" : m.sharpe >= 0 ? "neutral" : "red" },
-            { key: "bt_profit_factor", val: m.profitFactor >= 999 ? "∞" : m.profitFactor.toFixed(2), color: m.profitFactor >= 1.5 ? "green" : "red" },
+            { key: "bt_profit_factor", val: m.profitFactor >= 999 ? "\u221e" : m.profitFactor.toFixed(2), color: m.profitFactor >= 1.5 ? "green" : "red" },
             { key: "bt_avg_hold", val: `${m.avgHoldDays.toFixed(0)}d`, color: "neutral" },
             { key: "bt_wins_losses", val: `${m.numWins}W / ${m.numLosses}L`, color: "neutral" },
             { key: "bt_num_trades", val: m.numTrades, color: "neutral" },
         ];
-        metricsEl.innerHTML = metrics.map(mc => `<div class="bt-metric-card">
+        metricsEl.innerHTML = metrics.map(mc => `<div class="bt-metric-card${mc.big ? " bt-metric-big" : ""}">
             <div class="bt-metric-label">${t(mc.key)}</div>
             <div class="bt-metric-value bt-${mc.color}">${mc.val}</div>
         </div>`).join("");
 
-        // Equity curve chart
         renderEquityCurve(data.equityCurve, data.buyHoldCurve);
 
-        // Trades table
         const tbody = $("#bt-trades-body");
         tbody.innerHTML = trades.map((tr, i) => {
             const cls = tr.result === "win" ? "bt-win" : tr.result === "loss" ? "bt-loss" : "bt-open";
@@ -1739,12 +1815,14 @@
         $("#price-bar").classList.add("hidden");
         if (portfolioOpen) closePortfolio();
         if (compareMode) toggleCompare();
+        initBurstCanvas();
     }
 
     function hideWelcome() {
         const welcome = $("#welcome");
         if (welcome) welcome.classList.add("hidden");
         $("#search-section").classList.remove("hidden");
+        stopBurst();
     }
 
     function welcomeSearch(ticker, market) {
@@ -1756,6 +1834,80 @@
         $("#ticker-input").value = ticker;
         doSearch();
     }
+
+
+    // ── Burst Canvas Animation ──
+    let burstAnim = null;
+    function initBurstCanvas() {
+        const canvas = $("#burst-canvas");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const rays = [];
+        const RAY_COUNT = 120;
+        let w, h;
+
+        function resize() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            w = canvas.width = rect.width;
+            h = canvas.height = rect.height;
+        }
+        resize();
+        window.addEventListener("resize", resize);
+
+        for (let i = 0; i < RAY_COUNT; i++) {
+            const angle = (Math.random() * Math.PI) - Math.PI;
+            const speed = 0.15 + Math.random() * 0.4;
+            const maxLen = 80 + Math.random() * 220;
+            rays.push({ angle, speed, len: Math.random() * maxLen, maxLen, phase: Math.random() * Math.PI * 2 });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, w, h);
+            const cx = w / 2;
+            const cy = h * 0.92;
+            const time = Date.now() * 0.001;
+
+            for (const r of rays) {
+                r.len += r.speed;
+                if (r.len > r.maxLen) { r.len = 0; r.phase = Math.random() * Math.PI * 2; }
+
+                const progress = r.len / r.maxLen;
+                const wobble = Math.sin(time * 0.5 + r.phase) * 0.03;
+                const a = r.angle + wobble;
+                const x2 = cx + Math.cos(a) * r.len;
+                const y2 = cy + Math.sin(a) * r.len;
+
+                const alpha = progress < 0.1 ? progress * 10 : progress > 0.8 ? (1 - progress) * 5 : 1;
+                const hue = 260 + (r.angle + Math.PI) / Math.PI * 40;
+                const sat = 60 + progress * 30;
+                const light = 55 + progress * 20;
+
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(x2, y2);
+                ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha * 0.35})`;
+                ctx.lineWidth = 0.8;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(x2, y2, 1.5 + progress * 1.5, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue + 20}, ${sat + 10}%, ${light + 10}%, ${alpha * 0.6})`;
+                ctx.fill();
+            }
+
+            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+            grd.addColorStop(0, "rgba(124, 58, 237, 0.12)");
+            grd.addColorStop(0.5, "rgba(88, 166, 255, 0.04)");
+            grd.addColorStop(1, "transparent");
+            ctx.fillStyle = grd;
+            ctx.fillRect(cx - 60, cy - 60, 120, 120);
+
+            burstAnim = requestAnimationFrame(draw);
+        }
+        draw();
+    }
+
+    function stopBurst() { if (burstAnim) { cancelAnimationFrame(burstAnim); burstAnim = null; } }
 
     // ── Init ──
     document.addEventListener("DOMContentLoaded", () => {
@@ -1769,6 +1921,36 @@
         // Welcome page
         initScrollReveals();
         typewriterTick();
+        initBurstCanvas();
+
+        // Clickable feature cards
+        $$(".wf-card[data-action]").forEach(card => {
+            card.addEventListener("click", () => {
+                const action = card.dataset.action;
+                if (action === "portfolio") {
+                    hideWelcome(); togglePortfolio();
+                } else if (action === "compare") {
+                    hideWelcome(); toggleCompare();
+                } else if (action === "search") {
+                    hideWelcome();
+                    setTimeout(() => $("#ticker-input").focus(), 100);
+                } else {
+                    hideWelcome();
+                    if (!currentTicker) {
+                        setTimeout(() => $("#ticker-input").focus(), 100);
+                    } else {
+                        $$(".tab-btn").forEach(b => b.classList.remove("active"));
+                        $$(".tab-content").forEach(c => c.classList.remove("active"));
+                        const tabBtn = $$(`.tab-btn[data-tab="${action}"]`);
+                        if (tabBtn.length) tabBtn[0].classList.add("active");
+                        const tabEl = $(`#tab-${action}`);
+                        if (tabEl) tabEl.classList.add("active");
+                        if (action === "summary") fetchSummary();
+                        if (action === "valuation") fetchValuation();
+                    }
+                }
+            });
+        });
 
         // Trigger cards to reveal immediately if visible
         setTimeout(() => {
@@ -1860,11 +2042,23 @@
             $(`#tab-${btn.dataset.tab}`).classList.add("active");
             if (btn.dataset.tab === "summary" && currentTicker) fetchSummary();
             if (btn.dataset.tab === "valuation" && currentTicker) fetchValuation();
-            if (btn.dataset.tab === "backtest" && currentTicker) { backtestCache = {}; }
+            if (btn.dataset.tab === "backtest") { populateBtConfig(); }
         }));
 
         // Backtest run button
-        $("#bt-run-btn").addEventListener("click", () => { if (currentTicker) { backtestCache = {}; fetchBacktest(); } });
+        $("#bt-run-btn").addEventListener("click", () => { if (currentTicker) fetchBacktest(); });
+        ["bt-cfg-period", "bt-cfg-sensitivity"].forEach(id => {
+            const el = $("#" + id);
+            if (el) el.addEventListener("change", updateBtRules);
+        });
+        ["bt-ind-sma", "bt-ind-macd", "bt-ind-stochastic"].forEach(id => {
+            const el = $("#" + id);
+            if (el) el.addEventListener("change", updateBtRules);
+        });
+        ["bt-min-hold", "bt-cooldown", "bt-confirm"].forEach(id => {
+            const el = $("#" + id);
+            if (el) el.addEventListener("input", updateBtRules);
+        });
 
         // Portfolio
         $("#portfolio-btn").addEventListener("click", togglePortfolio);
