@@ -861,7 +861,7 @@
     }
 
     function renderSummary(data) {
-        const { overview: o, ratios, analyst } = data;
+        const { overview: o, ratios, analyst, industryInfo } = data;
         const changeClass = o.dayChange >= 0 ? "up" : "down";
         const changeSign = o.dayChange >= 0 ? "+" : "";
         const changeStr = o.dayChange != null ? `${changeSign}${o.dayChange.toFixed(2)}%` : "";
@@ -883,6 +883,14 @@
         }
         html += `</div>`;
 
+        if (industryInfo) {
+            html += `<div class="industry-banner">
+                <span class="industry-banner-icon">&#9670;</span>
+                ${t("industryBenchmark")}: <strong>${industryInfo.name}</strong>
+                <span class="industry-peer-count">(${industryInfo.peerCount} ${t("peers")})</span>
+            </div>`;
+        }
+
         let ratioIdx = 0;
         const allRatioItems = [];
         for (const group of ratios) {
@@ -890,10 +898,19 @@
             html += `<div class="ratio-section"><h4>${t("cat_" + group.category) || label}</h4>`;
             for (const item of group.items) {
                 allRatioItems.push(item);
+                const hasIndustry = item.industryMedianFmt != null && item.vsIndustry != null;
+                const vsSign = item.vsIndustry > 0 ? "+" : "";
+                const indBar = hasIndustry ? `<div class="ratio-industry">
+                    <span class="ratio-ind-label">${t("indMedian")}: ${item.industryMedianFmt}</span>
+                    <span class="ratio-vs ${item.verdict}">${vsSign}${item.vsIndustry.toFixed(1)}%</span>
+                </div>` : "";
                 html += `<div class="ratio-row verdict-${item.verdict}" data-ratio-idx="${ratioIdx}">
-                    <span class="ratio-label"><span class="ratio-info-icon">i</span>${item.label}</span>
-                    <span class="ratio-value">${item.value}</span>
-                    <div class="ratio-verdict"><span class="verdict-dot ${item.verdict}"></span><span class="verdict-text ${item.verdict}">${item.description}</span></div>
+                    <div class="ratio-main">
+                        <span class="ratio-label"><span class="ratio-info-icon">i</span>${item.label}</span>
+                        <span class="ratio-value">${item.value}</span>
+                        <div class="ratio-verdict"><span class="verdict-dot ${item.verdict}"></span><span class="verdict-text ${item.verdict}">${item.description}</span></div>
+                    </div>
+                    ${indBar}
                 </div>`;
                 ratioIdx++;
             }
@@ -933,6 +950,11 @@
 
         overlay = document.createElement("div");
         overlay.className = "metric-tooltip-overlay";
+        const hasInd = item.industryMedianFmt != null;
+        const indSection = hasInd ? `<div class="metric-industry-section">
+            <span class="metric-ind-badge"><span class="metric-ind-dot"></span>${t("indMedian")}: ${item.industryMedianFmt}</span>
+            ${item.vsIndustry != null ? `<span class="metric-vs-badge ${item.verdict}">${item.vsIndustry > 0 ? "+" : ""}${item.vsIndustry.toFixed(1)}% vs industry</span>` : ""}
+        </div>` : "";
         overlay.innerHTML = `<div class="metric-tooltip">
             <div class="metric-tooltip-header">
                 <h4>${item.label}</h4>
@@ -940,8 +962,9 @@
             </div>
             <div class="metric-tooltip-body">
                 <p>${item.tooltip || "No description available."}</p>
+                ${indSection}
                 <div>
-                    ${item.goodRange ? `<span class="metric-good-range"><span class="verdict-dot"></span><span>${t("goodRange")}: ${item.goodRange}</span></span>` : ""}
+                    ${!hasInd && item.goodRange ? `<span class="metric-good-range"><span class="verdict-dot"></span><span>${t("goodRange")}: ${item.goodRange}</span></span>` : ""}
                     <span class="metric-current-val ${item.verdict}">${t("current")}: ${item.value} — ${item.description}</span>
                 </div>
             </div>

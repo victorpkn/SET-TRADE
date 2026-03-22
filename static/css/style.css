@@ -524,13 +524,13 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; }
 }
 .ratio-section:hover { border-color: rgba(88,166,255,0.12); box-shadow: var(--shadow-glow); }
 .ratio-section h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 10px; text-transform: capitalize; color: var(--text-secondary); }
-.ratio-row { display: flex; align-items: center; padding: 9px 12px; border-radius: 6px; margin-bottom: 2px; transition: background 0.15s; }
+.ratio-row { display: flex; flex-direction: column; padding: 9px 12px; border-radius: 6px; margin-bottom: 2px; transition: background 0.15s; cursor: pointer; position: relative; }
 .ratio-row:last-child { margin-bottom: 0; }
 .ratio-row.verdict-good { background: var(--green-bg2); }
 .ratio-row.verdict-neutral { background: var(--yellow-bg2); }
 .ratio-row.verdict-bad { background: var(--red-bg2); }
 .ratio-row:hover { filter: brightness(1.15); }
-.ratio-row { cursor: pointer; position: relative; }
+.ratio-main { display: flex; align-items: center; width: 100%; }
 .ratio-label { flex: 1; font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
 .ratio-info-icon {
     width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border);
@@ -549,6 +549,43 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; }
 .verdict-text.good { color: var(--green); }
 .verdict-text.neutral { color: var(--yellow); }
 .verdict-text.bad { color: var(--red); }
+
+/* Industry comparison */
+.industry-banner {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--glass); border: 1px solid var(--accent-dim, rgba(88,166,255,0.15)); border-radius: var(--radius);
+    padding: 10px 16px; margin-bottom: 12px; font-size: 0.82rem; color: var(--text-secondary);
+}
+.industry-banner-icon { color: var(--accent); font-size: 0.7rem; }
+.industry-banner strong { color: var(--text-primary); }
+.industry-peer-count { opacity: 0.6; }
+.ratio-industry {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 4px; padding-left: 28px; font-size: 0.75rem;
+}
+.ratio-ind-label { color: var(--text-secondary); opacity: 0.7; }
+.ratio-vs { font-weight: 600; font-size: 0.73rem; padding: 1px 6px; border-radius: 4px; }
+.ratio-vs.good { color: var(--green); background: var(--green-bg); }
+.ratio-vs.neutral { color: var(--yellow); background: var(--yellow-bg); }
+.ratio-vs.bad { color: var(--red); background: var(--red-bg); }
+
+/* Metric tooltip industry section */
+.metric-industry-section {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+.metric-ind-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+    background: rgba(88,166,255,0.08); border-radius: var(--radius);
+    font-size: 0.82rem; font-weight: 600; color: var(--accent);
+}
+.metric-ind-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.metric-vs-badge {
+    display: inline-flex; align-items: center; padding: 6px 14px;
+    border-radius: var(--radius); font-size: 0.82rem; font-weight: 600;
+}
+.metric-vs-badge.good { background: var(--green-bg); color: var(--green); }
+.metric-vs-badge.neutral { background: var(--yellow-bg); color: var(--yellow); }
+.metric-vs-badge.bad { background: var(--red-bg); color: var(--red); }
 
 /* Metric Tooltip Popover */
 .metric-tooltip-overlay {

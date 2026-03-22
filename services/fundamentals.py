@@ -1,4 +1,5 @@
 from services.yf_session import Ticker
+from services.industry import fetch_industry_medians
 
 
 RATIO_RULES = {
@@ -144,12 +145,32 @@ RATIO_RULES = {
 CATEGORY_ORDER = ["valuation", "profitability", "health", "dividend", "growth"]
 
 
-def _evaluate_ratio(value, rule):
+def _evaluate_ratio(value, rule, industry_median=None):
     is_reverse = rule.get("reverse", False)
-    thresholds = rule["thresholds"]
 
+    if industry_median is not None and industry_median != 0:
+        pct_diff = (value - industry_median) / abs(industry_median) * 100
+
+        if is_reverse:
+            # Higher is better (margins, ROE, growth, etc.)
+            if pct_diff > 10:
+                return "good", "Above industry"
+            elif pct_diff < -10:
+                return "bad", "Below industry"
+            else:
+                return "neutral", "Near industry avg"
+        else:
+            # Lower is better (P/E, debt, etc.)
+            if pct_diff < -10:
+                return "good", "Below industry"
+            elif pct_diff > 10:
+                return "bad", "Above industry"
+            else:
+                return "neutral", "Near industry avg"
+
+    thresholds = rule["thresholds"]
     if is_reverse:
-        for thresh_val, verdict, desc in reversed(thresholds):
+        for thresh_val, verdict, desc in thresholds:
             if thresh_val is None:
                 return verdict, desc
             if value >= thresh_val:
@@ -220,6 +241,11 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
     else:
         overview["fiftyTwoWeekPercent"] = None
 
+    industry_key = info.get("industryKey", "")
+    industry_data = fetch_industry_medians(industry_key, exclude_symbol=symbol)
+    medians = industry_data.get("medians", {}) if industry_data else {}
+    peer_count = industry_data.get("peerCount", 0) if industry_data else 0
+
     ratios = {}
     for key, rule in RATIO_RULES.items():
         value = info.get(key)
@@ -227,20 +253,29 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
         if cat not in ratios:
             ratios[cat] = []
 
+        median_val = medians.get(key)
         base = {
             "label": rule["label"],
             "tooltip": rule.get("tooltip", ""),
             "goodRange": rule.get("goodRange", ""),
         }
 
+        if median_val is not None:
+            base["industryMedian"] = median_val
+            base["industryMedianFmt"] = _format_value(median_val, rule["format"])
+
         if value is not None:
-            verdict, desc = _evaluate_ratio(value, rule)
+            verdict, desc = _evaluate_ratio(value, rule, industry_median=median_val)
             base.update({
                 "value": _format_value(value, rule["format"]),
                 "rawValue": round(value, 4),
                 "verdict": verdict,
                 "description": desc,
             })
+            if median_val is not None and median_val != 0:
+                base["vsIndustry"] = round(
+                    (value - median_val) / abs(median_val) * 100, 1
+                )
         else:
             base.update({
                 "value": "N/A",
@@ -269,8 +304,16 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
             "numberOfAnalysts": info.get("numberOfAnalystOpinions"),
         }
 
+    industry_info = None
+    if medians:
+        industry_info = {
+            "name": info.get("industryDisp") or info.get("industry", ""),
+            "peerCount": peer_count,
+        }
+
     return {
         "overview": overview,
         "ratios": ordered_ratios,
         "analyst": analyst,
+        "industryInfo": industry_info,
     }
