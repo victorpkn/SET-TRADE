@@ -1,5 +1,5 @@
-import yfinance as yf
 import math
+from services.yf_session import Ticker
 
 
 def fetch_dcf(ticker: str, market: str = "set", overrides: dict = None) -> dict:
@@ -10,7 +10,7 @@ def fetch_dcf(ticker: str, market: str = "set", overrides: dict = None) -> dict:
     if market == "set" and not symbol.endswith(".BK"):
         symbol += ".BK"
 
-    stock = yf.Ticker(symbol)
+    stock = Ticker(symbol)
     info = stock.info
     if not info or info.get("quoteType") is None:
         return {"error": f"No data found for {symbol}"}

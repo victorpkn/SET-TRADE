@@ -1,7 +1,7 @@
 import time
 import logging
-import yfinance as yf
 import pandas as pd
+from services.yf_session import Ticker
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def fetch_stock_data(ticker: str, period: str = "6mo", market: str = "set") -> d
         market = "set"
 
     symbol = normalize_ticker(ticker, market)
-    stock = yf.Ticker(symbol)
+    stock = Ticker(symbol)
     df = _yf_retry(lambda: stock.history(period=period, interval="1d"))
 
     if df.empty:

@@ -1,5 +1,6 @@
 flask
-yfinance
+yfinance>=1.2.0
+curl_cffi
 pandas
 ta
 gunicorn

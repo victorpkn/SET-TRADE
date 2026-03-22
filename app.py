@@ -7,6 +7,7 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
+from services.yf_session import Ticker
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -93,7 +94,7 @@ def get_sparkline(ticker):
     try:
         market = request.args.get("market", "set")
         symbol = normalize_ticker(ticker, market)
-        stock = yf.Ticker(symbol)
+        stock = Ticker(symbol)
         df = stock.history(period="1mo", interval="1d")
         if df.empty:
             return jsonify({"error": "No data"}), 404
@@ -154,7 +155,7 @@ def get_portfolio():
             avg_cost = float(pos.get("avgCost", 0))
             symbol = normalize_ticker(ticker, market)
             try:
-                stock = yf.Ticker(symbol)
+                stock = Ticker(symbol)
                 info = stock.info
                 price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
                 prev_close = info.get("previousClose") or price

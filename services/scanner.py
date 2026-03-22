@@ -1,7 +1,7 @@
 import time
 import logging
-import yfinance as yf
 import pandas as pd
+from services.yf_session import Ticker
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import StochasticOscillator
@@ -40,7 +40,7 @@ def _yf_retry(fn, retries=2, delay=3):
 def _compute_signal_fast(symbol: str) -> dict | None:
     """Compute signals for a single ticker. Returns None on failure."""
     try:
-        stock = yf.Ticker(symbol)
+        stock = Ticker(symbol)
         df = _yf_retry(lambda: stock.history(period="3mo", interval="1d"))
         if df.empty or len(df) < 30:
             return None
@@ -155,7 +155,7 @@ def compute_signal_accuracy(symbol: str, lookback_days: int = 90,
                             horizon: int = 5) -> dict | None:
     """Check historical signal accuracy: did price move in the predicted direction?"""
     try:
-        stock = yf.Ticker(symbol)
+        stock = Ticker(symbol)
         df = _yf_retry(lambda: stock.history(period="1y", interval="1d"))
         if df.empty or len(df) < 60:
             return None

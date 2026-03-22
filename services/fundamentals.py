@@ -1,4 +1,4 @@
-import yfinance as yf
+from services.yf_session import Ticker
 
 
 RATIO_RULES = {
@@ -189,7 +189,7 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
     if market == "set" and not symbol.endswith(".BK"):
         symbol += ".BK"
 
-    stock = yf.Ticker(symbol)
+    stock = Ticker(symbol)
     info = stock.info
 
     if not info or info.get("quoteType") is None:
