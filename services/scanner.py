@@ -1,7 +1,7 @@
 import time
 import logging
 import pandas as pd
-from services.yf_session import Ticker, yf_fetch_with_retry
+from services.yf_session import Ticker, yf_fetch_with_retry, get_cached_info
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import StochasticOscillator
@@ -93,7 +93,7 @@ def _compute_signal_fast(symbol: str) -> dict | None:
         day_chg = round((price - prev) / prev * 100, 2) if prev else 0
 
         try:
-            info = yf_fetch_with_retry(lambda: stock.info)
+            info = get_cached_info(symbol)
         except Exception:
             info = None
         name = (info.get("longName") or info.get("shortName") or symbol) if info else symbol

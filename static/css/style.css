@@ -1547,3 +1547,50 @@ footer { text-align: center; padding: 16px; color: var(--text-secondary); font-s
     .price-bar { padding: 5px 12px; }
     .wf-label { width: 90px; font-size: 0.72rem; }
 }
+
+/* ── Alerts ── */
+.alerts-create { margin-bottom: 20px; }
+.alert-form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+.alert-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: 0.88rem; font-family: inherit; outline: none; }
+.alert-input:focus { border-color: var(--accent); }
+.alert-input-wide { flex: 1; min-width: 180px; }
+.alert-hint { font-size: 0.82rem; margin-top: 4px; min-height: 18px; }
+.alert-hint.success { color: #3fb950; }
+.alert-hint.error { color: #f85149; }
+
+.alert-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+.alert-type-icon { font-size: 1.3rem; }
+.alert-info { flex: 1; }
+.alert-ticker-label { font-weight: 600; font-size: 0.95rem; }
+.alert-market-label { font-size: 0.75rem; color: var(--text2); margin-left: 4px; }
+.alert-detail { font-size: 0.82rem; color: var(--text2); margin-top: 2px; }
+.alert-status { font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: 12px; }
+.alert-status.active { background: rgba(63,185,80,0.15); color: #3fb950; }
+.alert-status.triggered { background: rgba(210,153,34,0.15); color: #d29922; }
+.alert-status.inactive { background: rgba(139,148,158,0.15); color: #8b949e; }
+.alert-delete { background: none; border: none; color: var(--text2); font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.alert-delete:hover { background: rgba(248,81,73,0.15); color: #f85149; }
+
+/* ── Paper Trading ── */
+.paper-trade-form { margin-bottom: 20px; }
+.paper-empty { text-align: center; padding: 32px; color: var(--text2); }
+.paper-positions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.paper-pos-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.paper-pos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.paper-pos-ticker { font-weight: 700; font-size: 1.05rem; }
+.paper-pos-shares { font-size: 0.82rem; color: var(--text2); }
+.paper-pos-body { margin-bottom: 12px; }
+.paper-pos-row { display: flex; justify-content: space-between; font-size: 0.88rem; padding: 4px 0; }
+.paper-pos-row.profit { color: #3fb950; }
+.paper-pos-row.loss { color: #f85149; }
+
+.btn-sell-paper { width: 100%; padding: 8px; border: none; border-radius: 8px; background: rgba(248,81,73,0.15); color: #f85149; font-weight: 700; font-size: 0.88rem; cursor: pointer; font-family: inherit; transition: background 0.2s; }
+.btn-sell-paper:hover { background: rgba(248,81,73,0.3); }
+
+.paper-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; padding: 12px 16px; background: var(--bg2); border-radius: 10px; margin-bottom: 12px; }
+.paper-stats .profit { color: #3fb950; }
+.paper-stats .loss { color: #f85149; }
+
+.paper-trades-list { display: flex; flex-direction: column; gap: 4px; }
+.paper-trade-row { display: flex; gap: 16px; align-items: center; font-size: 0.85rem; padding: 8px 12px; background: var(--bg2); border-radius: 8px; }
+.paper-trade-ticker { font-weight: 600; min-width: 60px; }

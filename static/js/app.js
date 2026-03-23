@@ -1353,6 +1353,8 @@
         if (!portfolioOpen) return;
         hideWelcome();
         $("#results").classList.add("hidden");
+        $("#alerts-view").classList.add("hidden");
+        $("#paper-view").classList.add("hidden");
         if (compareMode) { toggleCompare(); }
         fetchPortfolio();
     }
@@ -2094,6 +2096,20 @@
         $("#portfolio-btn").addEventListener("click", togglePortfolio);
         $("#portfolio-close").addEventListener("click", closePortfolio);
 
+        // Alerts
+        $("#alerts-btn").addEventListener("click", toggleAlerts);
+        $("#alerts-close").addEventListener("click", closeAlerts);
+        $("#alert-create-btn").addEventListener("click", createAlertFromUI);
+        $("#alert-type").addEventListener("change", () => {
+            const isPrice = $("#alert-type").value === "price";
+            $("#alert-price-row").style.display = isPrice ? "flex" : "none";
+        });
+
+        // Paper Trade
+        $("#paper-trade-btn").addEventListener("click", togglePaperTrade);
+        $("#paper-close").addEventListener("click", closePaperTrade);
+        $("#paper-buy-btn").addEventListener("click", doPaperBuy);
+
         // Compare
         $("#compare-toggle").addEventListener("click", toggleCompare);
         $("#compare-close").addEventListener("click", toggleCompare);
@@ -2139,4 +2155,275 @@
         document.addEventListener("keydown", e => { if (e.key === "Escape") { helpOv.classList.add("hidden"); setOv.classList.add("hidden"); closePositionForm(); } });
         window.addEventListener("resize", handleResize);
     });
+
+    // ── Alerts ──
+
+    let alertsOpen = false;
+
+    function toggleAlerts() {
+        alertsOpen = !alertsOpen;
+        $("#alerts-btn").classList.toggle("active", alertsOpen);
+        $("#alerts-view").classList.toggle("hidden", !alertsOpen);
+        if (!alertsOpen) return;
+        hideWelcome();
+        $("#results").classList.add("hidden");
+        $("#portfolio-view").classList.add("hidden");
+        $("#paper-view").classList.add("hidden");
+        if (currentTicker) {
+            $("#alert-ticker").value = currentTicker;
+            $("#alert-market").value = currentMarket;
+        }
+        const savedEmail = localStorage.getItem("alertEmail");
+        if (savedEmail) $("#alert-email").value = savedEmail;
+        fetchAlerts();
+    }
+
+    function closeAlerts() {
+        alertsOpen = false;
+        $("#alerts-btn").classList.remove("active");
+        $("#alerts-view").classList.add("hidden");
+    }
+
+    async function fetchAlerts() {
+        try {
+            const res = await fetch("/api/alerts");
+            const alerts = await res.json();
+            renderAlerts(alerts);
+        } catch {}
+    }
+
+    function renderAlerts(alerts) {
+        const container = $("#alerts-list");
+        if (!alerts.length) {
+            container.innerHTML = `<div class="paper-empty"><p>${t("alertsEmpty")}</p></div>`;
+            return;
+        }
+        container.innerHTML = alerts.map(a => {
+            const typeIcon = a.type === "signal" ? "📡" : "💰";
+            const statusCls = a.triggered ? "triggered" : (a.active ? "active" : "inactive");
+            const statusLabel = a.triggered ? "Triggered" : (a.active ? "Active" : "Inactive");
+            let detail = "";
+            if (a.type === "price") {
+                detail = `${a.condition.direction === "above" ? "Above" : "Below"} $${a.condition.price}`;
+            } else {
+                detail = a.lastSignal ? `Last: ${a.lastSignal}` : "Monitoring...";
+            }
+            return `<div class="alert-row">
+                <span class="alert-type-icon">${typeIcon}</span>
+                <div class="alert-info">
+                    <div class="alert-ticker-label">${a.ticker} <span class="alert-market-label">${a.market.toUpperCase()}</span></div>
+                    <div class="alert-detail">${detail}</div>
+                </div>
+                <span class="alert-status ${statusCls}">${statusLabel}</span>
+                <button class="alert-delete" data-id="${a.id}">&times;</button>
+            </div>`;
+        }).join("");
+        container.querySelectorAll(".alert-delete").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                await fetch(`/api/alerts/${btn.dataset.id}`, { method: "DELETE" });
+                fetchAlerts();
+            });
+        });
+    }
+
+    async function createAlertFromUI() {
+        const type = $("#alert-type").value;
+        const ticker = $("#alert-ticker").value.trim();
+        const market = $("#alert-market").value;
+        const email = $("#alert-email").value.trim();
+        const hint = $("#alert-hint");
+
+        if (!ticker || !email) {
+            hint.textContent = "Ticker and email are required.";
+            hint.className = "alert-hint error";
+            return;
+        }
+        localStorage.setItem("alertEmail", email);
+
+        const body = { type, ticker, market, email };
+        if (type === "price") {
+            const price = parseFloat($("#alert-price").value);
+            const direction = $("#alert-direction").value;
+            if (!price || price <= 0) {
+                hint.textContent = "Enter a valid target price.";
+                hint.className = "alert-hint error";
+                return;
+            }
+            body.price = price;
+            body.direction = direction;
+        }
+
+        try {
+            const res = await fetch("/api/alerts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) {
+                hint.textContent = "Alert created! You'll receive emails when triggered.";
+                hint.className = "alert-hint success";
+                fetchAlerts();
+            } else {
+                const d = await res.json();
+                hint.textContent = d.error || "Failed to create alert.";
+                hint.className = "alert-hint error";
+            }
+        } catch {
+            hint.textContent = "Network error.";
+            hint.className = "alert-hint error";
+        }
+    }
+
+    // ── Paper Trading ──
+
+    let paperOpen = false;
+
+    function togglePaperTrade() {
+        paperOpen = !paperOpen;
+        $("#paper-trade-btn").classList.toggle("active", paperOpen);
+        $("#paper-view").classList.toggle("hidden", !paperOpen);
+        if (!paperOpen) return;
+        hideWelcome();
+        $("#results").classList.add("hidden");
+        $("#portfolio-view").classList.add("hidden");
+        $("#alerts-view").classList.add("hidden");
+        if (currentTicker) {
+            $("#paper-ticker").value = currentTicker;
+            $("#paper-market").value = currentMarket;
+        }
+        fetchPaperPortfolio();
+    }
+
+    function closePaperTrade() {
+        paperOpen = false;
+        $("#paper-trade-btn").classList.remove("active");
+        $("#paper-view").classList.add("hidden");
+    }
+
+    async function fetchPaperPortfolio() {
+        try {
+            const [pfRes, hRes] = await Promise.all([
+                fetch("/api/paper/portfolio"),
+                fetch("/api/paper/history"),
+            ]);
+            const portfolio = await pfRes.json();
+            const history = await hRes.json();
+            renderPaperPortfolio(portfolio, history);
+        } catch {}
+    }
+
+    function renderPaperPortfolio(pf, hist) {
+        const retCls = pf.totalReturn >= 0 ? "profit" : "loss";
+        const retSign = pf.totalReturn >= 0 ? "+" : "";
+
+        let html = `<div class="pf-summary-cards">
+            <div class="pf-card">
+                <div class="pf-card-label">${t("pt_cash")}</div>
+                <div class="pf-card-value">$${pf.cash.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="pf-card">
+                <div class="pf-card-label">${t("pt_portfolio_value")}</div>
+                <div class="pf-card-value">$${pf.portfolioValue.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+            </div>
+            <div class="pf-card ${retCls}">
+                <div class="pf-card-label">${t("pt_total_return")}</div>
+                <div class="pf-card-value">${retSign}$${pf.totalReturn.toLocaleString(undefined,{minimumFractionDigits:2})} <span class="pf-card-pct">(${retSign}${pf.totalReturnPct.toFixed(1)}%)</span></div>
+            </div>
+        </div>`;
+        $("#paper-summary").innerHTML = html;
+
+        if (pf.positions.length) {
+            let posHtml = `<h3>${t("pt_open_positions")}</h3><div class="paper-positions-grid">`;
+            for (const p of pf.positions) {
+                const pCls = p.pnl >= 0 ? "profit" : "loss";
+                const pSign = p.pnl >= 0 ? "+" : "";
+                posHtml += `<div class="paper-pos-card">
+                    <div class="paper-pos-header">
+                        <span class="paper-pos-ticker">${p.ticker}</span>
+                        <span class="paper-pos-shares">${p.shares} shares</span>
+                    </div>
+                    <div class="paper-pos-body">
+                        <div class="paper-pos-row"><span>Entry</span><span>$${p.entryPrice.toFixed(2)}</span></div>
+                        <div class="paper-pos-row"><span>Current</span><span>$${p.currentPrice.toFixed(2)}</span></div>
+                        <div class="paper-pos-row ${pCls}"><span>P&L</span><span>${pSign}$${p.pnl.toFixed(2)} (${pSign}${p.pnlPct.toFixed(1)}%)</span></div>
+                    </div>
+                    <button class="btn-sell-paper" data-id="${p.id}">SELL</button>
+                </div>`;
+            }
+            posHtml += `</div>`;
+            $("#paper-positions").innerHTML = posHtml;
+            $("#paper-positions").querySelectorAll(".btn-sell-paper").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const res = await fetch("/api/paper/sell", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ positionId: btn.dataset.id }),
+                    });
+                    if (res.ok) fetchPaperPortfolio();
+                });
+            });
+        } else {
+            $("#paper-positions").innerHTML = `<div class="paper-empty"><p>${t("pt_no_positions")}</p></div>`;
+        }
+
+        if (hist.trades && hist.trades.length) {
+            $("#paper-history-section").classList.remove("hidden");
+            const stats = hist.stats;
+            let hHtml = `<div class="paper-stats">
+                <span>${stats.totalTrades} trades</span>
+                <span class="profit">${stats.wins}W</span> / <span class="loss">${stats.losses}L</span>
+                <span>Win rate: ${stats.winRate}%</span>
+                <span class="${stats.totalPnl >= 0 ? 'profit' : 'loss'}">Total: ${stats.totalPnl >= 0 ? '+' : ''}$${stats.totalPnl.toFixed(2)}</span>
+            </div>`;
+            hHtml += `<div class="paper-trades-list">`;
+            for (const tr of hist.trades.slice().reverse()) {
+                const cls = tr.result === "win" ? "profit" : "loss";
+                const sign = tr.pnl >= 0 ? "+" : "";
+                hHtml += `<div class="paper-trade-row ${cls}">
+                    <span class="paper-trade-ticker">${tr.ticker}</span>
+                    <span>${tr.shares} sh</span>
+                    <span>$${tr.entryPrice} → $${tr.exitPrice}</span>
+                    <span class="${cls}">${sign}$${tr.pnl.toFixed(2)} (${sign}${tr.pnlPct.toFixed(1)}%)</span>
+                </div>`;
+            }
+            hHtml += `</div>`;
+            $("#paper-history").innerHTML = hHtml;
+        } else {
+            $("#paper-history-section").classList.add("hidden");
+        }
+    }
+
+    async function doPaperBuy() {
+        const ticker = $("#paper-ticker").value.trim();
+        const market = $("#paper-market").value;
+        const shares = parseInt($("#paper-shares").value);
+        const hint = $("#paper-hint");
+
+        if (!ticker || !shares || shares <= 0) {
+            hint.textContent = "Enter a ticker and positive number of shares.";
+            hint.className = "alert-hint error";
+            return;
+        }
+        try {
+            const res = await fetch("/api/paper/buy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ticker, market, shares }),
+            });
+            const data = await res.json();
+            if (data.error) {
+                hint.textContent = data.error;
+                hint.className = "alert-hint error";
+            } else {
+                hint.textContent = `Bought ${shares} shares of ${ticker.toUpperCase()}!`;
+                hint.className = "alert-hint success";
+                $("#paper-shares").value = "";
+                fetchPaperPortfolio();
+            }
+        } catch {
+            hint.textContent = "Network error.";
+            hint.className = "alert-hint error";
+        }
+    }
+
 })();

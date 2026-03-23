@@ -6,6 +6,9 @@ logger = logging.getLogger(__name__)
 
 _session_info = {"type": "default", "error": None}
 
+_info_cache = {}
+INFO_CACHE_TTL = 1800  # 30 minutes
+
 
 def Ticker(symbol: str) -> yf.Ticker:
     return yf.Ticker(symbol)
@@ -17,6 +20,18 @@ def get_session():
 
 def get_session_info():
     return _session_info
+
+
+def get_cached_info(symbol: str) -> dict | None:
+    """Return stock.info with 30-min in-memory cache."""
+    cached = _info_cache.get(symbol)
+    if cached and (time.time() - cached["ts"]) < INFO_CACHE_TTL:
+        return cached["data"]
+    stock = yf.Ticker(symbol)
+    info = yf_fetch_with_retry(lambda: stock.info)
+    if info:
+        _info_cache[symbol] = {"ts": time.time(), "data": info}
+    return info
 
 
 def yf_fetch_with_retry(fn, retries=4, base_delay=2):

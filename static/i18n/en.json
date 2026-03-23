@@ -156,5 +156,15 @@
     "bt_confirm": "Confirm (days)",
     "bt_rule_hold": "Must hold at least {n} days before selling.",
     "bt_rule_cooldown": "Wait {n} days after selling before buying again.",
-    "bt_rule_confirm": "Signal must persist for {n} consecutive days before acting."
+    "bt_rule_confirm": "Signal must persist for {n} consecutive days before acting.",
+    "alerts": "Alerts",
+    "alertCreate": "Create Alert",
+    "alertsEmpty": "No alerts yet. Create one to get notified when signals change or prices cross targets.",
+    "paperTrade": "Paper Trade",
+    "pt_cash": "Cash",
+    "pt_portfolio_value": "Portfolio Value",
+    "pt_total_return": "Total Return",
+    "pt_open_positions": "Open Positions",
+    "pt_no_positions": "No open positions. Use the form above to paper-buy stocks.",
+    "pt_history": "Trade History"
 }

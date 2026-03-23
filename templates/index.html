@@ -35,6 +35,14 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
                 Portfolio
             </button>
+            <button id="alerts-btn" class="btn-icon" title="Alerts">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                <span data-i18n="alerts">Alerts</span>
+            </button>
+            <button id="paper-trade-btn" class="btn-icon" title="Paper Trade">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                <span data-i18n="paperTrade">Paper Trade</span>
+            </button>
             <button id="compare-toggle" class="btn-icon" title="Compare two stocks">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             </button>
@@ -219,6 +227,66 @@
                     <p>No positions yet. Search for a stock and click the <strong>+</strong> button in the price bar to add one.</p>
                 </div>
                 <div id="portfolio-content"></div>
+            </section>
+
+            <!-- Alerts Panel -->
+            <section id="alerts-view" class="portfolio-view hidden">
+                <div class="portfolio-header-row">
+                    <h2 data-i18n="alerts">Alerts</h2>
+                    <button class="btn-icon-sm" id="alerts-close" title="Close">&times;</button>
+                </div>
+                <div class="alerts-create">
+                    <div class="alert-form-row">
+                        <select id="alert-type" class="bt-select">
+                            <option value="signal">Signal Alert</option>
+                            <option value="price">Price Alert</option>
+                        </select>
+                        <input type="text" id="alert-ticker" placeholder="Ticker (e.g. AAPL)" class="alert-input">
+                        <select id="alert-market" class="bt-select">
+                            <option value="us">US</option>
+                            <option value="set">SET</option>
+                        </select>
+                    </div>
+                    <div class="alert-form-row" id="alert-price-row" style="display:none">
+                        <select id="alert-direction" class="bt-select">
+                            <option value="above">Crosses above</option>
+                            <option value="below">Crosses below</option>
+                        </select>
+                        <input type="number" id="alert-price" placeholder="Target price" class="alert-input" step="0.01">
+                    </div>
+                    <div class="alert-form-row">
+                        <input type="email" id="alert-email" placeholder="Your email" class="alert-input alert-input-wide">
+                        <button class="btn-primary btn-sm" id="alert-create-btn" data-i18n="alertCreate">Create Alert</button>
+                    </div>
+                    <div class="alert-hint" id="alert-hint"></div>
+                </div>
+                <div id="alerts-list"></div>
+            </section>
+
+            <!-- Paper Trading Panel -->
+            <section id="paper-view" class="portfolio-view hidden">
+                <div class="portfolio-header-row">
+                    <h2 data-i18n="paperTrade">Paper Trade</h2>
+                    <button class="btn-icon-sm" id="paper-close" title="Close">&times;</button>
+                </div>
+                <div id="paper-summary"></div>
+                <div class="paper-trade-form">
+                    <div class="alert-form-row">
+                        <input type="text" id="paper-ticker" placeholder="Ticker (e.g. AAPL)" class="alert-input">
+                        <select id="paper-market" class="bt-select">
+                            <option value="us">US</option>
+                            <option value="set">SET</option>
+                        </select>
+                        <input type="number" id="paper-shares" placeholder="Shares" class="alert-input" min="1" step="1">
+                        <button class="btn-primary btn-sm" id="paper-buy-btn">BUY</button>
+                    </div>
+                    <div class="alert-hint" id="paper-hint"></div>
+                </div>
+                <div id="paper-positions"></div>
+                <div id="paper-history-section" class="hidden">
+                    <h3 data-i18n="pt_history">Trade History</h3>
+                    <div id="paper-history"></div>
+                </div>
             </section>
 
             <!-- Single Stock Results -->

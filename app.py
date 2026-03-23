@@ -1,3 +1,4 @@
+import os
 import logging
 import traceback
 from flask import Flask, render_template, jsonify, request
@@ -8,13 +9,22 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
-from services.yf_session import Ticker, get_session_info, yf_fetch_with_retry
+from services.yf_session import Ticker, get_session_info, yf_fetch_with_retry, get_cached_info
+from services.alerts import create_alert, get_alerts, delete_alert
+from services.alert_checker import start_checker
+from services.paper_trade import (
+    buy as paper_buy, sell as paper_sell,
+    get_portfolio as paper_portfolio, get_history as paper_history,
+    reset_account as paper_reset,
+)
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
+
+start_checker()
 
 
 @app.route("/")
@@ -178,8 +188,7 @@ def get_portfolio():
             avg_cost = float(pos.get("avgCost", 0))
             symbol = normalize_ticker(ticker, market)
             try:
-                stock = Ticker(symbol)
-                info = yf_fetch_with_retry(lambda: stock.info)
+                info = get_cached_info(symbol)
                 if not info:
                     return None
                 price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
@@ -279,6 +288,93 @@ def get_backtest(ticker):
     except Exception as e:
         app.logger.error(f"Error in /api/backtest/{ticker}: {e}")
         return jsonify({"error": "Failed to run backtest."}), 503
+
+
+# ── Alerts ──
+
+@app.route("/api/alerts", methods=["GET"])
+def list_alerts():
+    email = request.args.get("email", "")
+    return jsonify(get_alerts(email if email else None))
+
+
+@app.route("/api/alerts", methods=["POST"])
+def create_alert_route():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Invalid JSON"}), 400
+    alert_type = body.get("type", "signal")
+    ticker = body.get("ticker", "").strip()
+    market = body.get("market", "us")
+    email = body.get("email", "").strip()
+    if not ticker or not email:
+        return jsonify({"error": "ticker and email are required"}), 400
+    condition = {}
+    if alert_type == "price":
+        price = body.get("price")
+        direction = body.get("direction", "above")
+        if price is None:
+            return jsonify({"error": "price is required for price alerts"}), 400
+        condition = {"price": float(price), "direction": direction}
+    alert = create_alert(alert_type, ticker, market, email, condition)
+    return jsonify(alert), 201
+
+
+@app.route("/api/alerts/<alert_id>", methods=["DELETE"])
+def delete_alert_route(alert_id):
+    if delete_alert(alert_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Alert not found"}), 404
+
+
+# ── Paper Trading ──
+
+@app.route("/api/paper/portfolio")
+def paper_portfolio_route():
+    return jsonify(paper_portfolio())
+
+
+@app.route("/api/paper/buy", methods=["POST"])
+def paper_buy_route():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Invalid JSON"}), 400
+    ticker = body.get("ticker", "").strip()
+    market = body.get("market", "us")
+    shares = float(body.get("shares", 0))
+    if not ticker or shares <= 0:
+        return jsonify({"error": "ticker and positive shares required"}), 400
+    result = paper_buy(ticker, market, shares)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/paper/sell", methods=["POST"])
+def paper_sell_route():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Invalid JSON"}), 400
+    position_id = body.get("positionId", "")
+    if not position_id:
+        return jsonify({"error": "positionId required"}), 400
+    result = paper_sell(position_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/paper/history")
+def paper_history_route():
+    return jsonify(paper_history())
+
+
+@app.route("/api/paper/reset", methods=["POST"])
+def paper_reset_route():
+    body = request.get_json(silent=True) or {}
+    balance = float(body.get("balance", 100000))
+    paper_reset(balance)
+    return jsonify({"ok": True, "balance": balance})
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from services.yf_session import Ticker, yf_fetch_with_retry
+from services.yf_session import get_cached_info
 from services.industry import fetch_industry_medians
 
 
@@ -210,9 +210,8 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
     if market == "set" and not symbol.endswith(".BK"):
         symbol += ".BK"
 
-    stock = Ticker(symbol)
     try:
-        info = yf_fetch_with_retry(lambda: stock.info)
+        info = get_cached_info(symbol)
     except Exception:
         info = None
 
