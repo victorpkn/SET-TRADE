@@ -1,40 +1,35 @@
+import time
 import logging
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-_session = None
-_session_error = None
-
-try:
-    from curl_cffi import requests as cffi_requests
-    _session = cffi_requests.Session(impersonate="chrome")
-    logger.info("yf_session: using curl_cffi (chrome impersonation)")
-except Exception as exc:
-    _session_error = f"{type(exc).__name__}: {exc}"
-    logger.warning(f"yf_session: curl_cffi failed ({_session_error}), falling back to requests")
-    import requests as _req
-    _session = _req.Session()
-    _session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        )
-    })
+_session_info = {"type": "default", "error": None}
 
 
 def Ticker(symbol: str) -> yf.Ticker:
-    return yf.Ticker(symbol, session=_session)
+    return yf.Ticker(symbol)
 
 
 def get_session():
-    return _session
+    return None
 
 
 def get_session_info():
-    return {
-        "type": type(_session).__name__,
-        "module": type(_session).__module__,
-        "error": _session_error,
-    }
+    return _session_info
+
+
+def yf_fetch_with_retry(fn, retries=4, base_delay=2):
+    """Call fn with exponential backoff on rate limit errors."""
+    for attempt in range(retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            err = str(e)
+            is_rate_limit = any(k in err for k in ("Rate", "429", "Too Many", "RateLimit"))
+            if is_rate_limit and attempt < retries:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"Rate limited, retry {attempt + 1}/{retries} in {delay}s")
+                time.sleep(delay)
+                continue
+            raise

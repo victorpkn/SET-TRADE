@@ -1,25 +1,11 @@
-import time
 import logging
 import pandas as pd
-from services.yf_session import Ticker
+from services.yf_session import Ticker, yf_fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
 VALID_PERIODS = {"1mo", "3mo", "6mo", "1y", "2y", "5y"}
 VALID_MARKETS = {"set", "us"}
-
-
-def _yf_retry(fn, retries=2, delay=3):
-    for attempt in range(retries + 1):
-        try:
-            return fn()
-        except Exception as e:
-            if "Rate" in str(e) or "429" in str(e) or "Too Many" in str(e):
-                if attempt < retries:
-                    logger.warning(f"Rate limited, retrying in {delay}s (attempt {attempt + 1})")
-                    time.sleep(delay * (attempt + 1))
-                    continue
-            raise
 
 
 def normalize_ticker(ticker: str, market: str = "set") -> str:
@@ -37,7 +23,7 @@ def fetch_stock_data(ticker: str, period: str = "6mo", market: str = "set") -> d
 
     symbol = normalize_ticker(ticker, market)
     stock = Ticker(symbol)
-    df = _yf_retry(lambda: stock.history(period=period, interval="1d"))
+    df = yf_fetch_with_retry(lambda: stock.history(period=period, interval="1d"))
 
     if df.empty:
         return {"error": f"No data found for {symbol}"}

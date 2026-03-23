@@ -1,7 +1,7 @@
 import time
 import logging
 import pandas as pd
-from services.yf_session import Ticker
+from services.yf_session import Ticker, yf_fetch_with_retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import StochasticOscillator
@@ -23,25 +23,11 @@ DEFAULT_SCAN_US = [
 ]
 
 
-def _yf_retry(fn, retries=2, delay=3):
-    """Call fn with retry on rate limit errors."""
-    for attempt in range(retries + 1):
-        try:
-            return fn()
-        except Exception as e:
-            if "Rate" in str(e) or "429" in str(e) or "Too Many" in str(e):
-                if attempt < retries:
-                    logger.warning(f"Rate limited, retrying in {delay}s (attempt {attempt + 1})")
-                    time.sleep(delay * (attempt + 1))
-                    continue
-            raise
-
-
 def _compute_signal_fast(symbol: str) -> dict | None:
     """Compute signals for a single ticker. Returns None on failure."""
     try:
         stock = Ticker(symbol)
-        df = _yf_retry(lambda: stock.history(period="3mo", interval="1d"))
+        df = yf_fetch_with_retry(lambda: stock.history(period="3mo", interval="1d"))
         if df.empty or len(df) < 30:
             return None
 
@@ -156,7 +142,7 @@ def compute_signal_accuracy(symbol: str, lookback_days: int = 90,
     """Check historical signal accuracy: did price move in the predicted direction?"""
     try:
         stock = Ticker(symbol)
-        df = _yf_retry(lambda: stock.history(period="1y", interval="1d"))
+        df = yf_fetch_with_retry(lambda: stock.history(period="1y", interval="1d"))
         if df.empty or len(df) < 60:
             return None
 

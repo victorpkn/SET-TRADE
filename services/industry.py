@@ -47,8 +47,7 @@ def fetch_industry_medians(industry_key: str, exclude_symbol: str = "") -> dict:
         return cached["data"]
 
     try:
-        from services.yf_session import get_session
-        ind = yf.Industry(industry_key, session=get_session())
+        ind = yf.Industry(industry_key)
         top = ind.top_companies
         if top is None or top.empty:
             return {}

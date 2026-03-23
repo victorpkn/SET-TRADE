@@ -8,7 +8,7 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
-from services.yf_session import Ticker, get_session_info
+from services.yf_session import Ticker, get_session_info, yf_fetch_with_retry
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -28,13 +28,13 @@ def health_check():
     results = {"yfinance_version": yf.__version__, "session": get_session_info()}
     try:
         stock = Ticker("AAPL")
-        df = stock.history(period="5d", interval="1d")
+        df = yf_fetch_with_retry(lambda: stock.history(period="5d", interval="1d"))
         results["history"] = {"rows": len(df), "ok": not df.empty}
     except Exception as e:
         results["history"] = {"error": str(e), "type": type(e).__name__}
     try:
         stock = Ticker("AAPL")
-        info = stock.info
+        info = yf_fetch_with_retry(lambda: stock.info)
         results["info"] = {"keys": len(info), "name": info.get("shortName", "?")}
     except Exception as e:
         results["info"] = {"error": str(e), "type": type(e).__name__}
