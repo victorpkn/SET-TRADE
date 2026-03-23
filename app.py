@@ -8,7 +8,7 @@ from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
 from services.backtest import run_backtest
 from services.set_tickers import search_set
-from services.yf_session import Ticker
+from services.yf_session import Ticker, get_session_info
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
@@ -25,7 +25,7 @@ def index():
 @app.route("/api/health")
 def health_check():
     """Diagnostic endpoint to test yfinance on this server."""
-    results = {"yfinance_version": yf.__version__, "session_type": type(Ticker("X").session).__name__}
+    results = {"yfinance_version": yf.__version__, "session": get_session_info()}
     try:
         stock = Ticker("AAPL")
         df = stock.history(period="5d", interval="1d")
