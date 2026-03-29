@@ -25,6 +25,26 @@
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
 
+    function fetchWithTimeout(url, opts = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const existing = opts.signal;
+        if (existing) existing.addEventListener("abort", () => controller.abort());
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(url, { ...opts, signal: controller.signal }).then(res => {
+            clearTimeout(timer);
+            return res;
+        }, err => {
+            clearTimeout(timer);
+            if (err.name === "AbortError" && !existing?.aborted) {
+                const timeout = new Error("Request timed out — server may be busy. Try again.");
+                timeout.name = "TimeoutError";
+                timeout.retryable = true;
+                throw timeout;
+            }
+            throw err;
+        });
+    }
+
     // ── Settings ──
 
     const DEFAULT_SETTINGS = {
@@ -853,7 +873,7 @@
         $("#summary-loading").classList.remove("hidden");
         if (retryCount === 0) $("#summary-content").innerHTML = "";
         try {
-            const res = await fetch(`/api/summary/${encodeURIComponent(ticker)}?market=${currentMarket}`);
+            const res = await fetchWithTimeout(`/api/summary/${encodeURIComponent(ticker)}?market=${currentMarket}`);
             if (currentTicker !== ticker) return;
             if (!res.ok) {
                 const d = await res.json().catch(() => ({}));
@@ -867,12 +887,13 @@
             renderSummary(data);
         } catch (err) {
             if (currentTicker !== ticker) return;
-            if (err.retryable && retryCount < MAX_RETRIES) {
+            const isTimeout = err.name === "TimeoutError";
+            if (!isTimeout && err.retryable && retryCount < MAX_RETRIES) {
                 await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
                 if (currentTicker === ticker) return fetchSummary(retryCount + 1);
                 return;
             }
-            const retryBtn = err.retryable
+            const retryBtn = (err.retryable || isTimeout)
                 ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-summary'))">Retry</button>`
                 : "";
             $("#summary-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
@@ -1015,7 +1036,7 @@
             if (overrides) {
                 for (const [k, v] of Object.entries(overrides)) qs += `&${k}=${v}`;
             }
-            const res = await fetch(`/api/valuation/${encodeURIComponent(ticker)}?${qs}`);
+            const res = await fetchWithTimeout(`/api/valuation/${encodeURIComponent(ticker)}?${qs}`);
             if (currentTicker !== ticker) return;
             if (!res.ok) {
                 const d = await res.json().catch(() => ({}));
@@ -1029,12 +1050,13 @@
             renderValuation(data);
         } catch (err) {
             if (currentTicker !== ticker) return;
-            if (err.retryable && retryCount < MAX_RETRIES) {
+            const isTimeout = err.name === "TimeoutError";
+            if (!isTimeout && err.retryable && retryCount < MAX_RETRIES) {
                 await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
                 if (currentTicker === ticker) return fetchValuation(overrides, retryCount + 1);
                 return;
             }
-            const retryBtn = err.retryable
+            const retryBtn = (err.retryable || isTimeout)
                 ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-valuation'))">Retry</button>`
                 : "";
             $("#valuation-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
@@ -1695,7 +1717,7 @@
 
         try {
             const url = `/api/stock/${encodeURIComponent(ticker)}?period=${currentPeriod}&market=${currentMarket}${settingsToQuery()}`;
-            const res = await fetch(url, { signal: searchAbort.signal });
+            const res = await fetchWithTimeout(url, { signal: searchAbort.signal }, 20000);
             if (mySeq !== searchSeq) return;
             if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || t("fetchError")); }
             const data = await res.json();

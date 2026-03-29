@@ -64,8 +64,12 @@ def get_cached_info(symbol: str) -> dict | None:
     return info if has_useful_data else None
 
 
-def yf_fetch_with_retry(fn, retries=4, base_delay=2):
-    """Call fn with exponential backoff on transient errors."""
+def yf_fetch_with_retry(fn, retries=2, base_delay=1, max_delay=4):
+    """Call fn with exponential backoff on transient errors.
+
+    Defaults are conservative (2 retries, 1-4s delay) to stay well under
+    Render's 30-second request timeout.
+    """
     last_exc = None
     for attempt in range(retries + 1):
         try:
@@ -75,7 +79,7 @@ def yf_fetch_with_retry(fn, retries=4, base_delay=2):
             err = str(e) + type(e).__name__
             is_transient = any(k in err for k in TRANSIENT_KEYWORDS)
             if is_transient and attempt < retries:
-                delay = base_delay * (2 ** attempt)
+                delay = min(base_delay * (2 ** attempt), max_delay)
                 logger.warning(
                     f"Transient error (attempt {attempt + 1}/{retries}), "
                     f"retrying in {delay}s: {e}"
