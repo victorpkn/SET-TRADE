@@ -94,11 +94,12 @@ def get_summary(ticker):
         market = request.args.get("market", "set")
         data = fetch_fundamentals(ticker, market)
         if "error" in data:
-            return jsonify(data), 404
+            status = 503 if data.get("retryable") else 404
+            return jsonify(data), status
         return jsonify(data)
     except Exception as e:
         app.logger.error(f"Error in /api/summary/{ticker}: {traceback.format_exc()}")
-        return jsonify({"error": "Failed to fetch summary data."}), 503
+        return jsonify({"error": "Failed to fetch summary data.", "retryable": True}), 503
 
 
 @app.route("/api/valuation/<ticker>")
@@ -115,11 +116,12 @@ def get_valuation(ticker):
                     pass
         data = fetch_dcf(ticker, market, overrides if overrides else None)
         if "error" in data:
-            return jsonify(data), 404
+            status = 503 if data.get("retryable") else 404
+            return jsonify(data), status
         return jsonify(data)
     except Exception as e:
         app.logger.error(f"Error in /api/valuation/{ticker}: {e}")
-        return jsonify({"error": "Failed to fetch valuation data."}), 503
+        return jsonify({"error": "Failed to fetch valuation data.", "retryable": True}), 503
 
 
 @app.route("/api/sparkline/<ticker>")

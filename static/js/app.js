@@ -842,23 +842,39 @@
 
     const categoryLabels = { valuation: "Valuation", profitability: "Profitability", health: "Financial Health", dividend: "Dividend", growth: "Growth" };
 
-    async function fetchSummary() {
+    async function fetchSummary(retryCount = 0) {
+        const MAX_RETRIES = 2;
+        const RETRY_DELAYS = [1500, 3000];
         const key = `${currentTicker}-${currentMarket}`;
+        const ticker = currentTicker;
         if (summaryCache[key]) { renderSummary(summaryCache[key]); return; }
         $("#summary-loading").classList.remove("hidden");
-        $("#summary-content").innerHTML = "";
+        if (retryCount === 0) $("#summary-content").innerHTML = "";
         try {
             const res = await fetch(`/api/summary/${encodeURIComponent(currentTicker)}?market=${currentMarket}`);
-            if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed to load summary"); }
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                const err = new Error(d.error || "Failed to load summary");
+                err.retryable = d.retryable || res.status >= 500;
+                throw err;
+            }
             const data = await res.json();
             summaryCache[key] = data;
             renderSummary(data);
         } catch (err) {
-            $("#summary-content").innerHTML = `<div class="error-msg">${err.message}</div>`;
+            if (err.retryable && retryCount < MAX_RETRIES && currentTicker === ticker) {
+                await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
+                if (currentTicker === ticker) return fetchSummary(retryCount + 1);
+            }
+            const retryBtn = err.retryable
+                ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-summary'))">Retry</button>`
+                : "";
+            $("#summary-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
         } finally {
             $("#summary-loading").classList.add("hidden");
         }
     }
+    document.addEventListener("retry-summary", () => { summaryCache = {}; fetchSummary(); });
 
     function renderSummary(data) {
         const { overview: o, ratios, analyst, industryInfo } = data;
@@ -980,27 +996,43 @@
 
     // ── Valuation Tab ──
 
-    async function fetchValuation(overrides) {
+    async function fetchValuation(overrides, retryCount = 0) {
+        const MAX_RETRIES = 2;
+        const RETRY_DELAYS = [1500, 3000];
         const key = `${currentTicker}-${currentMarket}`;
+        const ticker = currentTicker;
         if (!overrides && valuationCache[key]) { renderValuation(valuationCache[key]); return; }
         $("#valuation-loading").classList.remove("hidden");
-        $("#valuation-content").innerHTML = "";
+        if (retryCount === 0) $("#valuation-content").innerHTML = "";
         try {
             let qs = `market=${currentMarket}`;
             if (overrides) {
                 for (const [k, v] of Object.entries(overrides)) qs += `&${k}=${v}`;
             }
             const res = await fetch(`/api/valuation/${encodeURIComponent(currentTicker)}?${qs}`);
-            if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed to load valuation"); }
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                const err = new Error(d.error || "Failed to load valuation");
+                err.retryable = d.retryable || res.status >= 500;
+                throw err;
+            }
             const data = await res.json();
             if (!overrides) valuationCache[key] = data;
             renderValuation(data);
         } catch (err) {
-            $("#valuation-content").innerHTML = `<div class="error-msg">${err.message}</div>`;
+            if (err.retryable && retryCount < MAX_RETRIES && currentTicker === ticker) {
+                await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
+                if (currentTicker === ticker) return fetchValuation(overrides, retryCount + 1);
+            }
+            const retryBtn = err.retryable
+                ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-valuation'))">Retry</button>`
+                : "";
+            $("#valuation-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
         } finally {
             $("#valuation-loading").classList.add("hidden");
         }
     }
+    document.addEventListener("retry-valuation", () => { valuationCache = {}; fetchValuation(); });
 
     function fmtNum(n) {
         if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";

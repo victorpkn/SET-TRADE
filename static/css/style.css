@@ -224,6 +224,8 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; }
 .spinner { width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-msg { text-align: center; padding: 14px; color: var(--red); background: var(--red-bg); border: 1px solid var(--red); border-radius: var(--radius); margin-bottom: 20px; font-size: 0.9rem; }
+.retry-btn { margin-left: 10px; padding: 4px 14px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--accent); color: #fff; cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s; }
+.retry-btn:hover { opacity: 0.85; }
 .hidden { display: none !important; }
 
 /* ── Compare ── */

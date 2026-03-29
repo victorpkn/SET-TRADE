@@ -1,5 +1,8 @@
-from services.yf_session import get_cached_info
+import logging
+from services.yf_session import get_cached_info, invalidate_cache
 from services.industry import fetch_industry_medians
+
+logger = logging.getLogger(__name__)
 
 
 RATIO_RULES = {
@@ -210,13 +213,25 @@ def fetch_fundamentals(ticker: str, market: str = "set") -> dict:
     if market == "set" and not symbol.endswith(".BK"):
         symbol += ".BK"
 
-    try:
-        info = get_cached_info(symbol)
-    except Exception:
-        info = None
+    info = get_cached_info(symbol)
 
-    if not info or info.get("quoteType") is None:
-        return {"error": f"No data found for {symbol}"}
+    if not info:
+        logger.warning(f"fetch_fundamentals: get_cached_info returned None for {symbol}")
+        invalidate_cache(symbol)
+        info = get_cached_info(symbol)
+
+    if not info:
+        return {"error": f"No data found for {symbol}", "retryable": True}
+
+    has_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    has_identity = info.get("quoteType") or info.get("longName") or info.get("shortName")
+    if not has_price and not has_identity:
+        logger.warning(
+            f"fetch_fundamentals: info for {symbol} has no useful fields "
+            f"(keys: {list(info.keys())[:10]})"
+        )
+        invalidate_cache(symbol)
+        return {"error": f"No data found for {symbol}", "retryable": True}
 
     overview = {
         "name": info.get("longName") or info.get("shortName") or symbol,
