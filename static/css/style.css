@@ -210,7 +210,16 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; }
 }
 .btn-watchlist-add:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-.period-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+.period-buttons { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.period-divider { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
+.btn-interval {
+    background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary);
+    padding: 5px 10px; border-radius: var(--radius); cursor: pointer; font-size: 0.78rem;
+    font-weight: 600; font-family: inherit; transition: all 0.2s;
+}
+.btn-interval:hover { border-color: var(--accent); color: var(--text-primary); }
+.btn-interval.active { background: var(--gradient-accent); border-color: transparent; color: #fff; }
+.btn-interval.disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-period {
     padding: 7px 14px; background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: var(--radius); color: var(--text-secondary); font-size: 0.82rem;
@@ -490,6 +499,236 @@ main { flex: 1; min-width: 0; padding: 24px 32px; overflow-y: auto; }
 .chart-legend .cl-val { font-weight: 600; color: var(--text-primary); }
 .chart { width: 100%; height: 400px; }
 .chart-small { height: 180px; }
+.chart-wrap { position: relative; }
+.chart-readout {
+    position: absolute; top: 8px; left: 12px;
+    display: flex; gap: 10px; flex-wrap: wrap;
+    background: rgba(13, 17, 23, 0.78);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 5px 9px;
+    font-size: 0.72rem; line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    pointer-events: none;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    z-index: 3;
+    opacity: 0; transition: opacity 0.15s;
+}
+.chart-readout.visible { opacity: 1; }
+.chart-readout .ro-tag { color: var(--text-secondary); margin-right: 3px; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.chart-readout .ro-val { color: var(--text-primary); font-weight: 600; }
+.chart-readout .ro-val.up { color: var(--green); }
+.chart-readout .ro-val.down { color: var(--red); }
+.chart-readout .ro-time { color: var(--text-primary); font-weight: 700; }
+
+/* ── TradingView-style studies toolbar ── */
+.studies-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 6px 10px; margin: 4px 8px 8px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.74rem;
+}
+.studies-group { display: flex; align-items: center; gap: 6px; }
+.studies-group-tail { margin-left: auto; }
+.studies-label {
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-secondary); font-size: 0.66rem; font-weight: 700;
+    padding-right: 4px;
+}
+.studies-divider { width: 1px; align-self: stretch; background: var(--border); margin: 4px 2px; }
+.studies-pills { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.study-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    color: var(--text-secondary); font-family: inherit; font-size: 0.72rem;
+    font-weight: 600; padding: 4px 8px; border-radius: 14px;
+    cursor: pointer; transition: all 0.15s; line-height: 1; white-space: nowrap;
+}
+.study-pill:hover { color: var(--text-primary); border-color: var(--accent); }
+.study-pill.active {
+    background: rgba(88, 166, 255, 0.12);
+    border-color: var(--accent); color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.3);
+}
+.study-pill.icon-only { padding: 4px 6px; }
+.study-pill.text-pill { padding: 4px 9px; }
+.study-pill svg { display: block; }
+.study-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.study-check {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--text-secondary); font-size: 0.72rem; font-weight: 600;
+    cursor: pointer; user-select: none;
+}
+.study-check input { accent-color: var(--accent); }
+@media (max-width: 720px) {
+    .studies-label { display: none; }
+    .studies-divider { display: none; }
+    .studies-bar { gap: 6px; padding: 6px; }
+}
+
+/* The colored dot on each study pill is also a click target → opens style popover. */
+.study-pill .study-dot[data-style-path] { cursor: pointer; outline: 1px solid transparent; transition: transform 0.15s, outline-color 0.15s; }
+.study-pill .study-dot[data-style-path]:hover { transform: scale(1.4); outline-color: rgba(255,255,255,0.4); }
+
+/* Floating style popover (color / width / line style). */
+.style-popover {
+    position: fixed;
+    z-index: 200;
+    background: var(--bg-secondary);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(88,166,255,0.12);
+    min-width: 240px;
+    padding: 12px;
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    animation: spFadeIn 0.12s ease-out;
+}
+@keyframes spFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.style-popover .sp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.style-popover .sp-title { font-weight: 700; font-size: 0.82rem; color: var(--text-primary); }
+.style-popover .sp-close {
+    background: transparent; border: none; color: var(--text-secondary);
+    font-size: 1.1rem; cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.style-popover .sp-close:hover { color: var(--text-primary); }
+.style-popover .sp-row {
+    display: grid; grid-template-columns: 56px 1fr auto; gap: 8px;
+    align-items: center; margin-top: 6px;
+}
+.style-popover .sp-row label {
+    color: var(--text-secondary); font-size: 0.74rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
+.style-popover input[type=color] {
+    width: 100%; height: 28px;
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    padding: 1px; cursor: pointer;
+}
+.style-popover input[type=range] { width: 100%; accent-color: var(--accent); }
+.style-popover .sp-width-val {
+    font-variant-numeric: tabular-nums; color: var(--text-secondary); min-width: 28px; text-align: right;
+}
+.style-popover select {
+    width: 100%; padding: 4px 6px; background: var(--bg-primary);
+    color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px;
+    font-family: inherit; font-size: 0.78rem;
+}
+.style-popover .sp-row-multi { grid-template-columns: 56px 1fr; }
+.style-popover .sp-sub { display: flex; gap: 6px; align-items: center; }
+.style-popover .sp-sub > span { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.style-popover .sp-sub-lbl { font-size: 0.65rem; color: var(--text-secondary); }
+.style-popover .sp-sub input[type=color] { width: 40px; height: 24px; }
+.style-popover .sp-footer { display: flex; justify-content: flex-end; margin-top: 10px; }
+.style-popover .sp-reset {
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; font-family: inherit; font-size: 0.75rem; cursor: pointer;
+}
+.style-popover .sp-reset:hover { color: var(--text-primary); border-color: var(--accent); }
+
+/* Wider variant for the EMA popover (more controls). */
+.style-popover.sp-wide { min-width: 280px; }
+
+/* Pencil edit icon on EMA chips — appears on hover. */
+.ema-pill { position: relative; }
+.ema-pill .study-edit {
+    opacity: 0;
+    margin-left: 4px;
+    color: var(--text-secondary);
+    transition: opacity 0.15s, color 0.15s, transform 0.15s;
+    pointer-events: none;
+}
+.ema-pill:hover .study-edit { opacity: 1; pointer-events: auto; }
+.ema-pill .study-edit:hover { color: var(--accent); transform: scale(1.15); }
+
+/* iOS-style on/off switch used inside the popover. */
+.sp-switch { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; }
+.sp-switch input { opacity: 0; width: 0; height: 0; }
+.sp-switch .sp-switch-slider {
+    position: absolute; inset: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: background 0.18s, border-color 0.18s;
+}
+.sp-switch .sp-switch-slider::before {
+    content: ""; position: absolute;
+    height: 14px; width: 14px; left: 2px; top: 50%; transform: translateY(-50%);
+    background: var(--text-secondary); border-radius: 50%; transition: transform 0.18s, background 0.18s;
+}
+.sp-switch input:checked + .sp-switch-slider {
+    background: var(--gradient-accent); border-color: transparent;
+}
+.sp-switch input:checked + .sp-switch-slider::before {
+    transform: translate(16px, -50%); background: #fff;
+}
+
+/* Days input + stepper buttons in the popover. */
+.style-popover .sp-days {
+    width: 70px; padding: 4px 6px;
+    background: var(--bg-primary); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: inherit; font-size: 0.82rem; font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+}
+.style-popover .sp-days::-webkit-outer-spin-button,
+.style-popover .sp-days::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.style-popover .sp-step {
+    width: 24px; height: 24px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    color: var(--text-secondary); cursor: pointer;
+    border-radius: 6px; font-family: inherit; font-size: 0.95rem; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.style-popover .sp-step:hover { color: var(--text-primary); border-color: var(--accent); }
+
+/* Quick-day preset chips (TradingView-ish common EMA periods). */
+.style-popover .sp-quickdays {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin: 4px 0 8px 64px;
+}
+.style-popover .sp-quick {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    color: var(--text-secondary); font-family: inherit;
+    font-size: 0.7rem; font-weight: 600; padding: 2px 7px;
+    border-radius: 10px; cursor: pointer; transition: all 0.15s;
+    font-variant-numeric: tabular-nums;
+}
+.style-popover .sp-quick:hover { color: var(--text-primary); border-color: var(--accent); }
+.style-popover .sp-quick[data-current] {
+    background: rgba(88,166,255,0.16); border-color: var(--accent); color: var(--text-primary);
+}
+.style-popover .sp-days-wrap { display: flex; align-items: center; gap: 4px; }
+
+/* Hex code readout next to the color picker. */
+.style-popover .sp-hex {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.7rem; color: var(--text-secondary);
+    letter-spacing: 0.05em;
+}
+
+/* Style controls inside the Settings → Chart Studies panel. */
+.style-row {
+    display: grid;
+    grid-template-columns: 80px minmax(60px, 1fr) 36px 110px 30px 100px;
+    gap: 8px; align-items: center;
+    padding: 4px 0;
+}
+.style-row > label { font-size: 0.78rem; color: var(--text-secondary); }
+.style-row .sr-period { width: 100%; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); border-radius: 6px; font-family: inherit; font-size: 0.78rem; }
+.style-row input[type=color] { width: 36px; height: 24px; padding: 0; border: 1px solid var(--border); background: transparent; border-radius: 6px; cursor: pointer; }
+.style-row input[type=range] { width: 100%; accent-color: var(--accent); }
+.style-row .sr-width-val { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.72rem; text-align: right; }
+.style-row select.sr-style { width: 100%; padding: 4px 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 0.78rem; }
+@media (max-width: 720px) {
+    .style-row { grid-template-columns: 1fr; gap: 4px; }
+}
 
 /* ── Summary Tab ── */
 .summary-overview {

@@ -3,6 +3,7 @@
 
     let currentLang = "en";
     let currentPeriod = "6mo";
+    let currentInterval = "1d";
     let currentMarket = "set";
     let currentTicker = "";
     let lastRawSignal = null;
@@ -16,11 +17,22 @@
     let searchSeq = 0;
     let searchAbort = null;
 
-    let priceChart, macdChart, stochChart;
+    let priceChart, macdChart, stochChart, rsiChart;
     let priceCandleSeries = null;
     let lastUpdatedTime = null;
     let lastIndicatorData = null;
+    let lastCandlesData = null;
+    let lastCrossovers = null;
     let syncingCrosshair = false;
+
+    // Line-style label helper, keyed to Lightweight Charts' numeric enum.
+    const LINE_STYLE_OPTIONS = [
+        { value: 0, label: "Solid" },
+        { value: 1, label: "Dotted" },
+        { value: 2, label: "Dashed" },
+        { value: 3, label: "Large dashed" },
+        { value: 4, label: "Sparse dotted" },
+    ];
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -51,19 +63,195 @@
         sensitivity: "normal", smaShort: 20, smaLong: 50,
         macdFast: 12, macdSlow: 26, macdSignal: 9,
         stochK: 14, stochSmooth: 3, stochOb: 80, stochOs: 20,
+        emaPeriods: [9, 21, 50, 200],
+        bbPeriod: 20, bbStd: 2.0,
+        rsiPeriod: 14, rsiOb: 70, rsiOs: 30,
+        vwapPeriod: 20,
     };
     let settings = { ...DEFAULT_SETTINGS };
 
     function loadSettings() {
-        try { const s = localStorage.getItem("setTradeSettings"); if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch {}
+        try {
+            const s = localStorage.getItem("setTradeSettings");
+            if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
+            if (!Array.isArray(settings.emaPeriods) || !settings.emaPeriods.length) {
+                settings.emaPeriods = [...DEFAULT_SETTINGS.emaPeriods];
+            }
+        } catch {}
     }
     function saveSettings() { localStorage.setItem("setTradeSettings", JSON.stringify(settings)); }
 
     function settingsToQuery() {
+        const ema = (settings.emaPeriods || []).join(",");
         return `&sma_short=${settings.smaShort}&sma_long=${settings.smaLong}` +
             `&macd_fast=${settings.macdFast}&macd_slow=${settings.macdSlow}&macd_signal=${settings.macdSignal}` +
             `&stoch_k=${settings.stochK}&stoch_smooth=${settings.stochSmooth}` +
-            `&stoch_ob=${settings.stochOb}&stoch_os=${settings.stochOs}`;
+            `&stoch_ob=${settings.stochOb}&stoch_os=${settings.stochOs}` +
+            `&ema_periods=${encodeURIComponent(ema)}` +
+            `&bb_period=${settings.bbPeriod}&bb_std=${settings.bbStd}` +
+            `&rsi_period=${settings.rsiPeriod}` +
+            `&vwap_period=${settings.vwapPeriod}`;
+    }
+
+    // ── Chart Studies (TradingView-style overlays/panes state) ──
+    //
+    // lineStyle in Lightweight Charts:
+    //   0 = solid, 1 = dotted, 2 = dashed, 3 = large dashed, 4 = sparse dotted
+    //
+    // EMA toggles/styles are keyed by *slot index* (0..3), not by period,
+    // so user customizations survive period changes.
+
+    const DEFAULT_STUDIES = {
+        chartType: "candles",   // candles | line | area | bars | heikin
+        log: false,
+        volume: true,
+        ema: { 0: true, 1: true, 2: false, 3: false },
+        sma: true,
+        bb: false,
+        vwap: false,
+        rsi: true,
+        style: {
+            ema: [
+                { color: "#06d6a0", width: 2, lineStyle: 0 },
+                { color: "#58a6ff", width: 2, lineStyle: 0 },
+                { color: "#d29922", width: 2, lineStyle: 0 },
+                { color: "#a371f7", width: 2, lineStyle: 0 },
+            ],
+            sma: {
+                short: { color: "#58a6ff", width: 2, lineStyle: 0 },
+                long:  { color: "#d29922", width: 2, lineStyle: 0 },
+            },
+            bb: {
+                upper:  { color: "#7c3aed", width: 1, lineStyle: 0 },
+                middle: { color: "#7c3aed", width: 1, lineStyle: 2 },
+                lower:  { color: "#7c3aed", width: 1, lineStyle: 0 },
+            },
+            vwap: { color: "#f0b429", width: 2, lineStyle: 0 },
+            rsi:  { color: "#58a6ff", width: 2, lineStyle: 0 },
+            macd: {
+                line:    { color: "#58a6ff", width: 2, lineStyle: 0 },
+                signal:  { color: "#f78166", width: 2, lineStyle: 0 },
+                upHist:   "#3fb950",
+                downHist: "#f85149",
+            },
+            stoch: {
+                k:  { color: "#58a6ff", width: 2, lineStyle: 0 },
+                d:  { color: "#f78166", width: 2, lineStyle: 0 },
+                ob: "#f85149",
+                os: "#3fb950",
+            },
+        },
+    };
+    let studies = JSON.parse(JSON.stringify(DEFAULT_STUDIES));
+
+    function deepMerge(target, source) {
+        if (!source || typeof source !== "object") return target;
+        for (const k of Object.keys(source)) {
+            const sv = source[k];
+            if (sv && typeof sv === "object" && !Array.isArray(sv) && target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
+                target[k] = deepMerge({ ...target[k] }, sv);
+            } else {
+                target[k] = sv;
+            }
+        }
+        return target;
+    }
+
+    function loadStudies() {
+        try {
+            const raw = localStorage.getItem("setTradeStudies");
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+
+            // Migrate legacy period-keyed EMA state (e.g. {9: true}) to slot keys.
+            if (parsed.ema && Object.keys(parsed.ema).some(k => parseInt(k, 10) > 4)) {
+                const migrated = {};
+                const defaults = settings.emaPeriods || [9, 21, 50, 200];
+                defaults.forEach((p, idx) => {
+                    if (parsed.ema[p] != null) migrated[idx] = !!parsed.ema[p];
+                });
+                parsed.ema = migrated;
+            }
+
+            studies = deepMerge(JSON.parse(JSON.stringify(DEFAULT_STUDIES)), parsed);
+
+            // Make sure style.ema is always 4 slots long.
+            if (!Array.isArray(studies.style.ema)) {
+                studies.style.ema = JSON.parse(JSON.stringify(DEFAULT_STUDIES.style.ema));
+            }
+            while (studies.style.ema.length < 4) {
+                studies.style.ema.push(JSON.parse(JSON.stringify(DEFAULT_STUDIES.style.ema[studies.style.ema.length])));
+            }
+        } catch {}
+    }
+    function saveStudies() { localStorage.setItem("setTradeStudies", JSON.stringify(studies)); }
+
+    function isEmaOn(slot) { return !!(studies.ema && studies.ema[slot]); }
+    function toggleEma(slot) {
+        studies.ema = studies.ema || {};
+        studies.ema[slot] = !studies.ema[slot];
+        saveStudies();
+    }
+
+    // Style accessor — `path` is a dot path like "ema.0", "bb.upper", "vwap", "rsi", "sma.short".
+    function styleAt(path) {
+        const parts = path.split(".");
+        let cur = studies.style;
+        for (const p of parts) {
+            if (cur == null) return null;
+            cur = cur[p];
+        }
+        return cur;
+    }
+    function setStyle(path, patch) {
+        const parts = path.split(".");
+        let cur = studies.style;
+        for (let i = 0; i < parts.length - 1; i++) {
+            cur = cur[parts[i]];
+            if (cur == null) return;
+        }
+        const last = parts[parts.length - 1];
+        cur[last] = { ...cur[last], ...patch };
+        saveStudies();
+    }
+
+    function applyStudyButtonStates() {
+        document.querySelectorAll("#studies-bar [data-group='chartType'] .study-pill").forEach(b => {
+            b.classList.toggle("active", b.dataset.type === studies.chartType);
+        });
+        document.querySelectorAll("#studies-bar [data-study='ema']").forEach(b => {
+            const slot = parseInt(b.dataset.slot, 10);
+            b.classList.toggle("active", isEmaOn(slot));
+        });
+        const setPill = (key, on) => {
+            const el = document.querySelector(`#studies-bar [data-study='${key}']`);
+            if (el) el.classList.toggle("active", !!on);
+        };
+        setPill("bb", studies.bb);
+        setPill("vwap", studies.vwap);
+        setPill("volume", studies.volume);
+        setPill("rsi", studies.rsi);
+        const logCb = document.getElementById("study-log");
+        if (logCb) logCb.checked = !!studies.log;
+        const rsiCont = document.getElementById("rsi-chart-container");
+        if (rsiCont) rsiCont.classList.toggle("hidden", !studies.rsi);
+        // Sync the colored dots in the studies bar (BB / VWAP / EMA chips).
+        paintStudyDots();
+    }
+
+    function paintStudyDots() {
+        // EMA dots come from studies.style.ema[slot]
+        document.querySelectorAll("#studies-bar [data-study='ema'] .study-dot").forEach(dot => {
+            const slot = parseInt(dot.parentElement.dataset.slot, 10);
+            const st = styleAt(`ema.${slot}`);
+            if (st) dot.style.background = st.color;
+        });
+        const setDot = (sel, color) => {
+            const dot = document.querySelector(`#studies-bar [data-study='${sel}'] .study-dot`);
+            if (dot && color) dot.style.background = color;
+        };
+        setDot("bb", styleAt("bb.upper")?.color);
+        setDot("vwap", styleAt("vwap")?.color);
     }
 
     function populateSettingsUI() {
@@ -76,8 +264,17 @@
         $("#stoch-smooth").value = settings.stochSmooth;
         $("#stoch-ob").value = settings.stochOb;
         $("#stoch-os").value = settings.stochOs;
+        if ($("#bb-period")) $("#bb-period").value = settings.bbPeriod;
+        if ($("#bb-std")) $("#bb-std").value = settings.bbStd;
+        if ($("#rsi-period")) $("#rsi-period").value = settings.rsiPeriod;
+        if ($("#rsi-ob")) $("#rsi-ob").value = settings.rsiOb;
+        if ($("#rsi-os")) $("#rsi-os").value = settings.rsiOs;
+        if ($("#vwap-period")) $("#vwap-period").value = settings.vwapPeriod;
         $$(".btn-sensitivity").forEach(b => b.classList.toggle("active", b.dataset.sensitivity === settings.sensitivity));
         updateSensitivityDesc();
+        // Build dynamic style controls (EMA period inputs live here, so this also
+        // ensures #ema-1..#ema-4 exist before readSettingsFromUI() runs).
+        populateStyleControls();
         updateIndicatorSummaries();
     }
 
@@ -86,6 +283,10 @@
         s("#sma-summary", `${settings.smaShort} / ${settings.smaLong}`);
         s("#macd-summary", `${settings.macdFast} / ${settings.macdSlow} / ${settings.macdSignal}`);
         s("#stoch-summary", `${settings.stochK} / ${settings.stochSmooth} · ${settings.stochOb}/${settings.stochOs}`);
+        s("#ema-summary", (settings.emaPeriods || []).join(" / "));
+        s("#bb-summary", `${settings.bbPeriod} / ${Number(settings.bbStd).toFixed(1)}`);
+        s("#rsi-summary", `${settings.rsiPeriod} · ${settings.rsiOb}/${settings.rsiOs}`);
+        s("#vwap-summary", `${settings.vwapPeriod}`);
     }
 
     function readSettingsFromUI() {
@@ -98,6 +299,20 @@
         settings.stochSmooth = parseInt($("#stoch-smooth").value);
         settings.stochOb = parseInt($("#stoch-ob").value);
         settings.stochOs = parseInt($("#stoch-os").value);
+        const emaIn = [];
+        for (let i = 0; i < 4; i++) {
+            const el = $(`#ema-${i + 1}`);
+            if (!el) continue;
+            const v = parseInt(el.value, 10);
+            if (Number.isFinite(v) && v > 1 && v <= 500) emaIn.push(v);
+        }
+        if (emaIn.length) settings.emaPeriods = emaIn;
+        if ($("#bb-period")) settings.bbPeriod = parseInt($("#bb-period").value) || 20;
+        if ($("#bb-std")) settings.bbStd = parseFloat($("#bb-std").value) || 2.0;
+        if ($("#rsi-period")) settings.rsiPeriod = parseInt($("#rsi-period").value) || 14;
+        if ($("#rsi-ob")) settings.rsiOb = parseInt($("#rsi-ob").value) || 70;
+        if ($("#rsi-os")) settings.rsiOs = parseInt($("#rsi-os").value) || 30;
+        if ($("#vwap-period")) settings.vwapPeriod = parseInt($("#vwap-period").value) || 20;
         const ab = $(".btn-sensitivity.active");
         if (ab) settings.sensitivity = ab.dataset.sensitivity;
         updateIndicatorSummaries();
@@ -342,20 +557,33 @@
 
     const cc = { background: "#161b22", textColor: "#8b949e", gridColor: "rgba(48,54,61,0.5)" };
 
-    function makeChart(container, h) {
+    function isIntradayInterval(iv) {
+        return ["1m", "2m", "5m", "15m", "30m", "60m", "1h", "90m"].includes(iv);
+    }
+
+    function makeChart(container, h, opts = {}) {
+        const intraday = isIntradayInterval(currentInterval);
         return LightweightCharts.createChart(container, {
             width: container.clientWidth, height: h,
             layout: { background: { type: "solid", color: cc.background }, textColor: cc.textColor, fontFamily: "Inter, sans-serif" },
             grid: { vertLines: { color: cc.gridColor }, horzLines: { color: cc.gridColor } },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-            rightPriceScale: { borderColor: cc.gridColor },
-            timeScale: { borderColor: cc.gridColor, timeVisible: false },
+            rightPriceScale: {
+                borderColor: cc.gridColor,
+                mode: opts.log ? LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal,
+            },
+            timeScale: {
+                borderColor: cc.gridColor,
+                timeVisible: intraday,
+                secondsVisible: false,
+                rightOffset: 6,
+            },
         });
     }
 
     function syncCharts() {
-        if (!priceChart || !macdChart || !stochChart) return;
-        const charts = [priceChart, macdChart, stochChart];
+        const charts = [priceChart, macdChart, stochChart, rsiChart].filter(Boolean);
+        if (charts.length < 2) return;
         charts.forEach((src, si) => {
             src.timeScale().subscribeVisibleLogicalRangeChange(range => {
                 if (syncingCrosshair) return;
@@ -383,94 +611,292 @@
         });
     }
 
+    function paramTimeToKey(time) {
+        if (time == null) return null;
+        if (typeof time === "object") {
+            return `${time.year}-${String(time.month).padStart(2,"0")}-${String(time.day).padStart(2,"0")}`;
+        }
+        return time; // string or unix-seconds number — used directly for findByTime
+    }
+
+    function updateReadout(timeKey) {
+        const el = $("#price-readout");
+        if (!el || !lastCandlesData) return;
+        let candle = null;
+        if (timeKey == null) {
+            candle = lastCandlesData[lastCandlesData.length - 1];
+        } else {
+            // Match either exact (intraday epoch second) or date prefix (daily YYYY-MM-DD).
+            for (const c of lastCandlesData) {
+                if (c.time === timeKey) { candle = c; break; }
+                if (typeof c.time === "string" && c.time === timeKey) { candle = c; break; }
+            }
+        }
+        if (!candle) { el.classList.remove("visible"); return; }
+        const change = candle.close - candle.open;
+        const pct = candle.open ? (change / candle.open) * 100 : 0;
+        const cls = change >= 0 ? "up" : "down";
+        const sign = change >= 0 ? "+" : "";
+        const timeLabel = (typeof candle.time === "number")
+            ? new Date(candle.time * 1000).toISOString().slice(0, 16).replace("T", " ")
+            : candle.time;
+        const volTxt = candle.volume >= 1e6
+            ? (candle.volume / 1e6).toFixed(2) + "M"
+            : candle.volume >= 1e3 ? (candle.volume / 1e3).toFixed(1) + "K"
+            : String(candle.volume);
+        el.innerHTML =
+            `<span class="ro-time">${timeLabel}</span>` +
+            `<span><span class="ro-tag">O</span><span class="ro-val">${candle.open.toFixed(2)}</span></span>` +
+            `<span><span class="ro-tag">H</span><span class="ro-val">${candle.high.toFixed(2)}</span></span>` +
+            `<span><span class="ro-tag">L</span><span class="ro-val">${candle.low.toFixed(2)}</span></span>` +
+            `<span><span class="ro-tag">C</span><span class="ro-val ${cls}">${candle.close.toFixed(2)}</span></span>` +
+            `<span><span class="ro-tag">Δ</span><span class="ro-val ${cls}">${sign}${change.toFixed(2)} (${sign}${pct.toFixed(2)}%)</span></span>` +
+            `<span><span class="ro-tag">V</span><span class="ro-val">${volTxt}</span></span>`;
+        el.classList.add("visible");
+    }
+
     function updateChartLegends(param) {
         if (!lastIndicatorData) return;
         const ind = lastIndicatorData;
         const priceLeg = $("#price-chart-legend");
         const macdLeg = $("#macd-chart-legend");
         const stochLeg = $("#stoch-chart-legend");
+        const rsiLeg = $("#rsi-chart-legend");
 
-        if (!param || !param.time) {
+        const timeKey = paramTimeToKey(param && param.time);
+
+        if (timeKey == null) {
             if (priceLeg) updatePriceLegend(priceLeg, ind, -1);
             if (macdLeg) updateMacdLegend(macdLeg, ind, -1);
             if (stochLeg) updateStochLegend(stochLeg, ind, -1);
+            if (rsiLeg) updateRsiLegend(rsiLeg, ind, -1);
+            updateReadout(null);
             return;
         }
 
-        const timeStr = typeof param.time === "object"
-            ? `${param.time.year}-${String(param.time.month).padStart(2,"0")}-${String(param.time.day).padStart(2,"0")}`
-            : param.time;
-
-        if (priceLeg) updatePriceLegend(priceLeg, ind, timeStr);
-        if (macdLeg) updateMacdLegend(macdLeg, ind, timeStr);
-        if (stochLeg) updateStochLegend(stochLeg, ind, timeStr);
+        if (priceLeg) updatePriceLegend(priceLeg, ind, timeKey);
+        if (macdLeg) updateMacdLegend(macdLeg, ind, timeKey);
+        if (stochLeg) updateStochLegend(stochLeg, ind, timeKey);
+        if (rsiLeg) updateRsiLegend(rsiLeg, ind, timeKey);
+        updateReadout(timeKey);
     }
 
     function findByTime(arr, t) {
-        if (t === -1 && arr.length) return arr[arr.length - 1];
-        return arr.find(d => d.time === t);
+        if (!arr || !arr.length) return null;
+        if (t === -1) return arr[arr.length - 1];
+        return arr.find(d => d.time === t) || null;
+    }
+
+    function legendChip(color, label, value, digits = 2) {
+        const dot = color ? `<span class="cl-dot" style="background:${color}"></span>` : "";
+        return `<span class="cl-item">${dot}${label}: <span class="cl-val">${Number(value).toFixed(digits)}</span></span>`;
     }
 
     function updatePriceLegend(el, ind, t) {
+        let h = "";
         const ss = findByTime(ind.sma_short, t);
         const sl = findByTime(ind.sma_long, t);
-        let h = "";
-        if (ss) h += `<span class="cl-item"><span class="cl-dot" style="background:#58a6ff"></span>SMA ${settings.smaShort}: <span class="cl-val">${ss.value.toFixed(2)}</span></span>`;
-        if (sl) h += `<span class="cl-item"><span class="cl-dot" style="background:#d29922"></span>SMA ${settings.smaLong}: <span class="cl-val">${sl.value.toFixed(2)}</span></span>`;
+        if (studies.sma && ss) h += legendChip(styleAt("sma.short").color, `SMA ${settings.smaShort}`, ss.value);
+        if (studies.sma && sl) h += legendChip(styleAt("sma.long").color,  `SMA ${settings.smaLong}`,  sl.value);
+
+        if (ind.ema && ind.ema.series) {
+            const periods = ind.ema.periods || [];
+            periods.forEach((p, idx) => {
+                if (!isEmaOn(idx)) return;
+                const point = findByTime(ind.ema.series[String(p)], t);
+                if (point) h += legendChip(styleAt(`ema.${idx}`).color, `EMA ${p}`, point.value);
+            });
+        }
+
+        if (studies.bb && ind.bb) {
+            const up = findByTime(ind.bb.upper, t);
+            const mid = findByTime(ind.bb.middle, t);
+            const lo = findByTime(ind.bb.lower, t);
+            if (up && mid && lo) {
+                const c = styleAt("bb.upper").color;
+                h += `<span class="cl-item"><span class="cl-dot" style="background:${c}"></span>BB(${ind.bb.period},${ind.bb.std}): <span class="cl-val">${lo.value.toFixed(2)} / ${mid.value.toFixed(2)} / ${up.value.toFixed(2)}</span></span>`;
+            }
+        }
+        if (studies.vwap && ind.vwap) {
+            const v = findByTime(ind.vwap.series, t);
+            if (v) h += legendChip(styleAt("vwap").color, `VWAP ${ind.vwap.period}`, v.value);
+        }
+
         el.innerHTML = h;
     }
 
     function updateMacdLegend(el, ind, t) {
         const d = findByTime(ind.macd, t);
         if (!d) { el.innerHTML = ""; return; }
+        const sl = styleAt("macd.line").color, ss = styleAt("macd.signal").color;
         el.innerHTML =
-            `<span class="cl-item"><span class="cl-dot" style="background:#58a6ff"></span>MACD: <span class="cl-val">${d.macd.toFixed(4)}</span></span>` +
-            `<span class="cl-item"><span class="cl-dot" style="background:#f78166"></span>Signal: <span class="cl-val">${d.signal.toFixed(4)}</span></span>` +
+            `<span class="cl-item"><span class="cl-dot" style="background:${sl}"></span>MACD: <span class="cl-val">${d.macd.toFixed(4)}</span></span>` +
+            `<span class="cl-item"><span class="cl-dot" style="background:${ss}"></span>Signal: <span class="cl-val">${d.signal.toFixed(4)}</span></span>` +
             `<span class="cl-item">Hist: <span class="cl-val" style="color:${d.histogram >= 0 ? "var(--green)" : "var(--red)"}">${d.histogram >= 0 ? "+" : ""}${d.histogram.toFixed(4)}</span></span>`;
     }
 
     function updateStochLegend(el, ind, t) {
         const d = findByTime(ind.stochastic, t);
         if (!d) { el.innerHTML = ""; return; }
+        const kc = styleAt("stoch.k").color, dc = styleAt("stoch.d").color;
         el.innerHTML =
-            `<span class="cl-item"><span class="cl-dot" style="background:#58a6ff"></span>%K: <span class="cl-val">${d.k.toFixed(1)}</span></span>` +
-            `<span class="cl-item"><span class="cl-dot" style="background:#f78166"></span>%D: <span class="cl-val">${d.d.toFixed(1)}</span></span>`;
+            `<span class="cl-item"><span class="cl-dot" style="background:${kc}"></span>%K: <span class="cl-val">${d.k.toFixed(1)}</span></span>` +
+            `<span class="cl-item"><span class="cl-dot" style="background:${dc}"></span>%D: <span class="cl-val">${d.d.toFixed(1)}</span></span>`;
+    }
+
+    function updateRsiLegend(el, ind, t) {
+        if (!ind.rsi || !ind.rsi.series) { el.innerHTML = ""; return; }
+        const d = findByTime(ind.rsi.series, t);
+        if (!d) { el.innerHTML = ""; return; }
+        const v = d.value;
+        const cls = v >= settings.rsiOb ? "var(--red)" : v <= settings.rsiOs ? "var(--green)" : "var(--text-primary)";
+        const c = styleAt("rsi").color;
+        el.innerHTML =
+            `<span class="cl-item"><span class="cl-dot" style="background:${c}"></span>RSI ${ind.rsi.period}: <span class="cl-val" style="color:${cls}">${v.toFixed(2)}</span></span>` +
+            `<span class="cl-item" style="color:var(--text-secondary)">OB ${settings.rsiOb} · OS ${settings.rsiOs}</span>`;
+    }
+
+    function candlesToLine(candles) {
+        return candles.map(d => ({ time: d.time, value: d.close }));
+    }
+
+    // Heikin Ashi transform. Returns a new candles array with smoothed OHLC.
+    // Volume is kept verbatim from the original series.
+    function toHeikinAshi(candles) {
+        const out = [];
+        let prev = null;
+        for (const c of candles) {
+            const haClose = (c.open + c.high + c.low + c.close) / 4;
+            const haOpen = prev ? (prev.open + prev.close) / 2 : (c.open + c.close) / 2;
+            const haHigh = Math.max(c.high, haOpen, haClose);
+            const haLow = Math.min(c.low, haOpen, haClose);
+            const ha = {
+                time: c.time,
+                open: +haOpen.toFixed(4),
+                high: +haHigh.toFixed(4),
+                low: +haLow.toFixed(4),
+                close: +haClose.toFixed(4),
+                volume: c.volume,
+            };
+            out.push(ha);
+            prev = ha;
+        }
+        return out;
     }
 
     function renderPriceChart(candles, ind, crossovers) {
         const c = $("#price-chart"); c.innerHTML = "";
-        priceChart = makeChart(c, 400);
+        priceChart = makeChart(c, 420, { log: !!studies.log });
 
-        const volData = candles.map(d => ({
-            time: d.time,
-            value: d.volume,
-            color: d.close >= d.open ? "rgba(63,185,80,0.25)" : "rgba(248,81,73,0.25)",
-        }));
-        const volSeries = priceChart.addHistogramSeries({
-            priceFormat: { type: "volume" },
-            priceScaleId: "vol",
+        // Volume histogram (toggleable).
+        if (studies.volume) {
+            const volData = candles.map(d => ({
+                time: d.time,
+                value: d.volume,
+                color: d.close >= d.open ? "rgba(63,185,80,0.25)" : "rgba(248,81,73,0.25)",
+            }));
+            const volSeries = priceChart.addHistogramSeries({
+                priceFormat: { type: "volume" },
+                priceScaleId: "vol",
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            volSeries.setData(volData);
+            priceChart.priceScale("vol").applyOptions({
+                scaleMargins: { top: 0.8, bottom: 0 },
+                drawTicks: false,
+                borderVisible: false,
+            });
+        }
+
+        // Primary price series — type-driven.
+        let mainSeries;
+        const type = studies.chartType || "candles";
+        if (type === "line") {
+            mainSeries = priceChart.addLineSeries({
+                color: "#58a6ff", lineWidth: 2, lastValueVisible: true, priceLineVisible: true,
+            });
+            mainSeries.setData(candlesToLine(candles));
+        } else if (type === "area") {
+            mainSeries = priceChart.addAreaSeries({
+                lineColor: "#58a6ff", topColor: "rgba(88,166,255,0.35)", bottomColor: "rgba(88,166,255,0.02)",
+                lineWidth: 2, lastValueVisible: true, priceLineVisible: true,
+            });
+            mainSeries.setData(candlesToLine(candles));
+        } else if (type === "bars") {
+            mainSeries = priceChart.addBarSeries({
+                upColor: "#3fb950", downColor: "#f85149", thinBars: true,
+            });
+            mainSeries.setData(candles);
+        } else if (type === "heikin") {
+            mainSeries = priceChart.addCandlestickSeries({
+                upColor: "#3fb950", downColor: "#f85149",
+                borderUpColor: "#3fb950", borderDownColor: "#f85149",
+                wickUpColor: "#3fb950", wickDownColor: "#f85149",
+            });
+            mainSeries.setData(toHeikinAshi(candles));
+        } else {
+            mainSeries = priceChart.addCandlestickSeries({
+                upColor: "#3fb950", downColor: "#f85149",
+                borderUpColor: "#3fb950", borderDownColor: "#f85149",
+                wickUpColor: "#3fb950", wickDownColor: "#f85149",
+            });
+            mainSeries.setData(candles);
+        }
+        priceCandleSeries = mainSeries;
+
+        const lineOpts = (st, extra = {}) => ({
+            color: st.color,
+            lineWidth: st.width,
+            lineStyle: st.lineStyle,
             lastValueVisible: false,
             priceLineVisible: false,
-        });
-        volSeries.setData(volData);
-        priceChart.priceScale("vol").applyOptions({
-            scaleMargins: { top: 0.8, bottom: 0 },
-            drawTicks: false,
-            borderVisible: false,
+            ...extra,
         });
 
-        const cs = priceChart.addCandlestickSeries({
-            upColor: "#3fb950", downColor: "#f85149",
-            borderUpColor: "#3fb950", borderDownColor: "#f85149",
-            wickUpColor: "#3fb950", wickDownColor: "#f85149",
-        });
-        cs.setData(candles);
-        priceCandleSeries = cs;
+        // SMA overlays (kept tied to existing settings).
+        if (studies.sma) {
+            if (ind.sma_short && ind.sma_short.length) {
+                const s = priceChart.addLineSeries(lineOpts(styleAt("sma.short")));
+                s.setData(ind.sma_short);
+            }
+            if (ind.sma_long && ind.sma_long.length) {
+                const s = priceChart.addLineSeries(lineOpts(styleAt("sma.long")));
+                s.setData(ind.sma_long);
+            }
+        }
 
-        if (ind.sma_short && ind.sma_short.length) { const s = priceChart.addLineSeries({ color: "#58a6ff", lineWidth: 2, lastValueVisible: false, priceLineVisible: false }); s.setData(ind.sma_short); }
-        if (ind.sma_long && ind.sma_long.length) { const s = priceChart.addLineSeries({ color: "#d29922", lineWidth: 2, lastValueVisible: false, priceLineVisible: false }); s.setData(ind.sma_long); }
+        // EMA overlays — keyed by slot, not by period.
+        if (ind.ema && ind.ema.series) {
+            (ind.ema.periods || []).forEach((p, idx) => {
+                if (!isEmaOn(idx)) return;
+                const data = ind.ema.series[String(p)];
+                if (!data || !data.length) return;
+                const st = styleAt(`ema.${idx}`);
+                if (!st) return;
+                const s = priceChart.addLineSeries(lineOpts(st));
+                s.setData(data);
+            });
+        }
 
-        if (crossovers && crossovers.length) {
+        // Bollinger Bands.
+        if (studies.bb && ind.bb && ind.bb.upper && ind.bb.upper.length) {
+            const up = priceChart.addLineSeries(lineOpts(styleAt("bb.upper")));
+            up.setData(ind.bb.upper);
+            const mid = priceChart.addLineSeries(lineOpts(styleAt("bb.middle")));
+            mid.setData(ind.bb.middle);
+            const lo = priceChart.addLineSeries(lineOpts(styleAt("bb.lower")));
+            lo.setData(ind.bb.lower);
+        }
+
+        // VWAP.
+        if (studies.vwap && ind.vwap && ind.vwap.series && ind.vwap.series.length) {
+            const v = priceChart.addLineSeries(lineOpts(styleAt("vwap")));
+            v.setData(ind.vwap.series);
+        }
+
+        // Markers (only useful on candle/bar series).
+        if (crossovers && crossovers.length && (type === "candles" || type === "bars")) {
             const candleMap = {};
             candles.forEach(c => { candleMap[c.time] = c; });
             const markers = crossovers.filter(m => candleMap[m.time]).map(m => {
@@ -483,20 +909,41 @@
                     text: m.label,
                 };
             });
-            if (markers.length) cs.setMarkers(markers);
+            if (markers.length) mainSeries.setMarkers(markers);
         }
 
         priceChart.timeScale().fitContent();
     }
 
+    function withAlpha(hex, alpha) {
+        const m = /^#?([a-f0-9]{6})$/i.exec(hex || "");
+        if (!m) return hex;
+        const n = parseInt(m[1], 16);
+        const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+        return `rgba(${r},${g},${b},${alpha})`;
+    }
+
     function renderMacdChart(data) {
         const c = $("#macd-chart"); c.innerHTML = "";
         macdChart = makeChart(c, 180);
+        const macdStyle = studies.style.macd;
+        const upHist = macdStyle.upHist || "#3fb950";
+        const dnHist = macdStyle.downHist || "#f85149";
         const hist = macdChart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
-        hist.setData(data.map(d => ({ time: d.time, value: d.histogram, color: d.histogram >= 0 ? "rgba(63,185,80,0.6)" : "rgba(248,81,73,0.6)" })));
-        const ml = macdChart.addLineSeries({ color: "#58a6ff", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+        hist.setData(data.map(d => ({
+            time: d.time,
+            value: d.histogram,
+            color: d.histogram >= 0 ? withAlpha(upHist, 0.6) : withAlpha(dnHist, 0.6),
+        })));
+        const ml = macdChart.addLineSeries({
+            color: macdStyle.line.color, lineWidth: macdStyle.line.width, lineStyle: macdStyle.line.lineStyle,
+            lastValueVisible: false, priceLineVisible: false,
+        });
         ml.setData(data.map(d => ({ time: d.time, value: d.macd })));
-        const sl = macdChart.addLineSeries({ color: "#f78166", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+        const sl = macdChart.addLineSeries({
+            color: macdStyle.signal.color, lineWidth: macdStyle.signal.width, lineStyle: macdStyle.signal.lineStyle,
+            lastValueVisible: false, priceLineVisible: false,
+        });
         sl.setData(data.map(d => ({ time: d.time, value: d.signal })));
         macdChart.timeScale().fitContent();
     }
@@ -504,18 +951,69 @@
     function renderStochChart(data) {
         const c = $("#stoch-chart"); c.innerHTML = "";
         stochChart = makeChart(c, 180);
-        const kl = stochChart.addLineSeries({ color: "#58a6ff", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+        const stStyle = studies.style.stoch;
+        const kl = stochChart.addLineSeries({
+            color: stStyle.k.color, lineWidth: stStyle.k.width, lineStyle: stStyle.k.lineStyle,
+            lastValueVisible: false, priceLineVisible: false,
+        });
         kl.setData(data.map(d => ({ time: d.time, value: d.k })));
-        const dl = stochChart.addLineSeries({ color: "#f78166", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+        const dl = stochChart.addLineSeries({
+            color: stStyle.d.color, lineWidth: stStyle.d.width, lineStyle: stStyle.d.lineStyle,
+            lastValueVisible: false, priceLineVisible: false,
+        });
         dl.setData(data.map(d => ({ time: d.time, value: d.d })));
         if (data.length) {
             const times = data.map(d => d.time);
-            const ob = stochChart.addLineSeries({ color: "rgba(248,81,73,0.3)", lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
-            const os = stochChart.addLineSeries({ color: "rgba(63,185,80,0.3)", lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+            const ob = stochChart.addLineSeries({ color: withAlpha(stStyle.ob || "#f85149", 0.3), lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+            const os = stochChart.addLineSeries({ color: withAlpha(stStyle.os || "#3fb950", 0.3), lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
             ob.setData(times.map(time => ({ time, value: settings.stochOb })));
             os.setData(times.map(time => ({ time, value: settings.stochOs })));
         }
         stochChart.timeScale().fitContent();
+    }
+
+    function renderRsiChart(rsi) {
+        const cont = $("#rsi-chart-container");
+        if (!studies.rsi) {
+            if (cont) cont.classList.add("hidden");
+            rsiChart = null;
+            return;
+        }
+        if (cont) cont.classList.remove("hidden");
+        const c = $("#rsi-chart");
+        if (!c || !rsi || !rsi.series || !rsi.series.length) {
+            rsiChart = null;
+            return;
+        }
+        c.innerHTML = "";
+        rsiChart = makeChart(c, 160);
+        const st = styleAt("rsi");
+        const line = rsiChart.addLineSeries({
+            color: st.color, lineWidth: st.width, lineStyle: st.lineStyle,
+            lastValueVisible: false, priceLineVisible: false,
+        });
+        line.setData(rsi.series);
+        const times = rsi.series.map(d => d.time);
+        const ob = rsiChart.addLineSeries({ color: "rgba(248,81,73,0.4)", lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+        const mid = rsiChart.addLineSeries({ color: "rgba(139,148,158,0.35)", lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+        const os = rsiChart.addLineSeries({ color: "rgba(63,185,80,0.4)", lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+        ob.setData(times.map(time => ({ time, value: settings.rsiOb })));
+        mid.setData(times.map(time => ({ time, value: 50 })));
+        os.setData(times.map(time => ({ time, value: settings.rsiOs })));
+        rsiChart.priceScale("right").applyOptions({ autoScale: false });
+        try { rsiChart.priceScale("right").setVisibleRange?.({ from: 0, to: 100 }); } catch {}
+        rsiChart.timeScale().fitContent();
+    }
+
+    // Re-render everything from cached data (no network call).
+    function renderAllCharts() {
+        if (!lastCandlesData || !lastIndicatorData) return;
+        renderPriceChart(lastCandlesData, lastIndicatorData, lastCrossovers);
+        renderMacdChart(lastIndicatorData.macd);
+        renderStochChart(lastIndicatorData.stochastic);
+        renderRsiChart(lastIndicatorData.rsi);
+        syncCharts();
+        updateChartLegends({ time: null });
     }
 
     // ── Signal ──
@@ -1716,7 +2214,7 @@
         const mySeq = ++searchSeq;
 
         try {
-            const url = `/api/stock/${encodeURIComponent(ticker)}?period=${currentPeriod}&market=${currentMarket}${settingsToQuery()}`;
+            const url = `/api/stock/${encodeURIComponent(ticker)}?period=${currentPeriod}&interval=${currentInterval}&market=${currentMarket}${settingsToQuery()}`;
             const res = await fetchWithTimeout(url, { signal: searchAbort.signal }, 20000);
             if (mySeq !== searchSeq) return;
             if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || t("fetchError")); }
@@ -1726,11 +2224,15 @@
             $("#stock-ticker").textContent = data.ticker;
             $("#results").classList.remove("hidden");
             lastIndicatorData = data.indicators;
+            lastCandlesData = data.candles;
+            lastCrossovers = data.signal.crossovers;
             renderPriceChart(data.candles, data.indicators, data.signal.crossovers);
             renderMacdChart(data.indicators.macd);
             renderStochChart(data.indicators.stochastic);
+            renderRsiChart(data.indicators.rsi);
             syncCharts();
             updateChartLegends({ time: null });
+            applyStudyButtonStates();
             renderSignal(data.signal);
             updateIndicatorVisibility();
             updatePriceBar(data);
@@ -1855,6 +2357,7 @@
         if (priceChart) priceChart.applyOptions({ width: $("#price-chart").clientWidth });
         if (macdChart) macdChart.applyOptions({ width: $("#macd-chart").clientWidth });
         if (stochChart) stochChart.applyOptions({ width: $("#stoch-chart").clientWidth });
+        if (rsiChart && $("#rsi-chart")) rsiChart.applyOptions({ width: $("#rsi-chart").clientWidth });
     }
 
     // ── Welcome / Home ──
@@ -2019,13 +2522,531 @@
 
 
     // ── Init ──
+    // Map an intraday interval to the largest period yfinance will let us pull.
+    // Returns null when any period is fine (daily / weekly).
+    function intervalPeriodCap(iv) {
+        switch (iv) {
+            case "1m":
+            case "2m":  return "5d";
+            case "5m":
+            case "15m":
+            case "30m":
+            case "90m": return "1mo";
+            case "60m":
+            case "1h":  return "6mo";
+            default:    return null;
+        }
+    }
+
+    const PERIOD_RANK = { "1mo": 0, "3mo": 1, "6mo": 2, "1y": 3, "2y": 4, "5y": 5 };
+
+    function applyIntervalConstraints() {
+        const cap = intervalPeriodCap(currentInterval);
+        const allBtns = document.querySelectorAll(".btn-period");
+        if (!cap) {
+            allBtns.forEach(b => b.classList.remove("disabled"));
+            return;
+        }
+        // Disable period buttons that exceed the cap, and clamp currentPeriod.
+        const capRank = PERIOD_RANK[cap];
+        allBtns.forEach(b => {
+            const r = PERIOD_RANK[b.dataset.period];
+            const overCap = r != null && capRank != null && r > capRank;
+            b.classList.toggle("disabled", overCap);
+        });
+        if (PERIOD_RANK[currentPeriod] > capRank) {
+            currentPeriod = cap;
+            allBtns.forEach(b => b.classList.toggle("active", b.dataset.period === cap));
+        }
+    }
+
+    // ── Settings-panel style controls ──
+
+    function styleOptsHtml(current) {
+        return LINE_STYLE_OPTIONS.map(o =>
+            `<option value="${o.value}" ${o.value === (current || 0) ? "selected" : ""}>${o.label}</option>`
+        ).join("");
+    }
+
+    // Render a single style row (color / width / line style) bound to a style path.
+    function buildStyleRow(label, path, opts = {}) {
+        const st = styleAt(path) || { color: "#58a6ff", width: 2, lineStyle: 0 };
+        const periodCell = opts.periodInputId
+            ? `<input type="number" class="sr-period" id="${opts.periodInputId}" value="${opts.periodValue ?? ""}" min="2" max="500" step="1">`
+            : `<span></span>`;
+        const widthControl = opts.colorOnly
+            ? `<span></span><span></span>`
+            : `<input type="range" min="1" max="4" step="1" value="${st.width || 2}" data-bind="width"><span class="sr-width-val">${st.width || 2}px</span>`;
+        const styleControl = opts.colorOnly
+            ? `<span></span>`
+            : `<select class="sr-style" data-bind="lineStyle">${styleOptsHtml(st.lineStyle)}</select>`;
+        return `<div class="style-row" data-style-path="${path}">
+            <label>${label}</label>
+            ${periodCell}
+            <input type="color" value="${st.color}" data-bind="color">
+            ${widthControl}
+            ${styleControl}
+        </div>`;
+    }
+
+    function bindStyleRow(row) {
+        const path = row.dataset.stylePath;
+        if (!path) return;
+        row.querySelectorAll("[data-bind]").forEach(input => {
+            const key = input.dataset.bind;
+            const handler = () => {
+                let value;
+                if (key === "color") value = input.value;
+                else if (key === "width") {
+                    value = parseInt(input.value, 10);
+                    const out = row.querySelector(".sr-width-val");
+                    if (out) out.textContent = `${value}px`;
+                } else if (key === "lineStyle") value = parseInt(input.value, 10);
+                setStyle(path, { [key]: value });
+                applyStudyButtonStates();
+                renderAllCharts();
+            };
+            input.addEventListener("input", handler);
+            input.addEventListener("change", handler);
+        });
+    }
+
+    function populateStyleControls() {
+        const ema = settings.emaPeriods || [];
+        const emaBody = document.getElementById("ema-style-body");
+        if (emaBody) {
+            emaBody.innerHTML = [0, 1, 2, 3].map(slot =>
+                buildStyleRow(`EMA ${slot + 1}`, `ema.${slot}`, {
+                    periodInputId: `ema-${slot + 1}`,
+                    periodValue: ema[slot] || "",
+                })
+            ).join("");
+            emaBody.querySelectorAll(".style-row").forEach(bindStyleRow);
+            // Period inputs are read via readSettingsFromUI on Apply, not bound to style.
+        }
+
+        const smaBody = document.getElementById("sma-style-body");
+        if (smaBody) {
+            smaBody.innerHTML =
+                buildStyleRow(`SMA ${settings.smaShort}`, "sma.short") +
+                buildStyleRow(`SMA ${settings.smaLong}`,  "sma.long");
+            smaBody.querySelectorAll(".style-row").forEach(bindStyleRow);
+        }
+
+        const bbBody = document.getElementById("bb-style-body");
+        if (bbBody) {
+            bbBody.innerHTML =
+                buildStyleRow("Upper",  "bb.upper") +
+                buildStyleRow("Middle", "bb.middle") +
+                buildStyleRow("Lower",  "bb.lower");
+            bbBody.querySelectorAll(".style-row").forEach(bindStyleRow);
+        }
+
+        const vwapBody = document.getElementById("vwap-style-body");
+        if (vwapBody) {
+            vwapBody.innerHTML = buildStyleRow("Line", "vwap");
+            vwapBody.querySelectorAll(".style-row").forEach(bindStyleRow);
+        }
+
+        const rsiBody = document.getElementById("rsi-style-body");
+        if (rsiBody) {
+            rsiBody.innerHTML = buildStyleRow("Line", "rsi");
+            rsiBody.querySelectorAll(".style-row").forEach(bindStyleRow);
+        }
+
+        const macdBody = document.getElementById("macd-style-body");
+        if (macdBody) {
+            macdBody.innerHTML =
+                buildStyleRow("MACD",    "macd.line") +
+                buildStyleRow("Signal",  "macd.signal") +
+                `<div class="style-row" data-extra="macd-hist">
+                    <label>Histogram</label>
+                    <span></span>
+                    <input type="color" id="macd-up-color" value="${studies.style.macd.upHist}">
+                    <span style="font-size:0.72rem;color:var(--text-secondary);">up</span>
+                    <input type="color" id="macd-down-color" value="${studies.style.macd.downHist}">
+                    <span style="font-size:0.72rem;color:var(--text-secondary);">down</span>
+                </div>`;
+            macdBody.querySelectorAll(".style-row[data-style-path]").forEach(bindStyleRow);
+            const up = document.getElementById("macd-up-color");
+            const dn = document.getElementById("macd-down-color");
+            if (up) up.addEventListener("input", () => { studies.style.macd.upHist = up.value; saveStudies(); renderAllCharts(); });
+            if (dn) dn.addEventListener("input", () => { studies.style.macd.downHist = dn.value; saveStudies(); renderAllCharts(); });
+        }
+
+        const stochBody = document.getElementById("stoch-style-body");
+        if (stochBody) {
+            stochBody.innerHTML =
+                buildStyleRow("%K", "stoch.k") +
+                buildStyleRow("%D", "stoch.d") +
+                `<div class="style-row" data-extra="stoch-bands">
+                    <label>OB / OS</label>
+                    <span></span>
+                    <input type="color" id="stoch-ob-color" value="${studies.style.stoch.ob}">
+                    <span style="font-size:0.72rem;color:var(--text-secondary);">OB</span>
+                    <input type="color" id="stoch-os-color" value="${studies.style.stoch.os}">
+                    <span style="font-size:0.72rem;color:var(--text-secondary);">OS</span>
+                </div>`;
+            stochBody.querySelectorAll(".style-row[data-style-path]").forEach(bindStyleRow);
+            const ob = document.getElementById("stoch-ob-color");
+            const os = document.getElementById("stoch-os-color");
+            if (ob) ob.addEventListener("input", () => { studies.style.stoch.ob = ob.value; saveStudies(); renderAllCharts(); });
+            if (os) os.addEventListener("input", () => { studies.style.stoch.os = os.value; saveStudies(); renderAllCharts(); });
+        }
+    }
+
+    // ── Style popover (color / width / line style for any single line) ──
+
+    function closeStylePopover() {
+        const pop = document.getElementById("style-popover");
+        if (pop) pop.remove();
+        document.removeEventListener("mousedown", outsideStylePopover, true);
+        document.removeEventListener("keydown", escClosesStylePopover, true);
+    }
+    function outsideStylePopover(e) {
+        const pop = document.getElementById("style-popover");
+        if (pop && !pop.contains(e.target)) closeStylePopover();
+    }
+    function escClosesStylePopover(e) { if (e.key === "Escape") closeStylePopover(); }
+
+    function prettyLabelForPath(path) {
+        if (path.startsWith("ema.")) {
+            const slot = parseInt(path.split(".")[1], 10);
+            const period = (settings.emaPeriods || [])[slot];
+            return `EMA ${period ?? slot + 1}`;
+        }
+        if (path === "bb.upper") return "Bollinger Bands";
+        if (path === "vwap") return "VWAP";
+        if (path === "rsi") return "RSI";
+        if (path === "sma.short") return `SMA ${settings.smaShort}`;
+        if (path === "sma.long") return `SMA ${settings.smaLong}`;
+        if (path.startsWith("macd.")) return "MACD · " + path.split(".")[1];
+        if (path.startsWith("stoch.")) return "Stoch · " + path.split(".")[1];
+        return path;
+    }
+
+    // Generic debounce so per-keystroke refetches don't hammer the backend.
+    function debounce(fn, ms) {
+        let timer = null;
+        return function (...args) {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), ms);
+        };
+    }
+
+    function openStylePopover(path, anchor) {
+        closeStylePopover();
+        const st = styleAt(path);
+        if (!st) return;
+        const rect = anchor.getBoundingClientRect();
+        const isBB = path === "bb.upper";
+        const isEma = path.startsWith("ema.");
+        const emaSlot = isEma ? parseInt(path.split(".")[1], 10) : -1;
+        const emaPeriod = isEma ? ((settings.emaPeriods || [])[emaSlot] || "") : null;
+        const label = prettyLabelForPath(path);
+        const styleOpts = LINE_STYLE_OPTIONS.map(o =>
+            `<option value="${o.value}" ${o.value === (st.lineStyle || 0) ? "selected" : ""}>${o.label}</option>`
+        ).join("");
+
+        const visibleRow = isEma ? `
+            <div class="sp-row">
+                <label>Visible</label>
+                <label class="sp-switch">
+                    <input type="checkbox" class="sp-visible" ${isEmaOn(emaSlot) ? "checked" : ""}>
+                    <span class="sp-switch-slider"></span>
+                </label>
+            </div>` : "";
+
+        const daysRow = isEma ? `
+            <div class="sp-row">
+                <label>Days</label>
+                <div class="sp-days-wrap">
+                    <button class="sp-step" data-step="-1" title="Decrease">−</button>
+                    <input type="number" class="sp-days" min="2" max="500" step="1" value="${emaPeriod}">
+                    <button class="sp-step" data-step="1" title="Increase">+</button>
+                </div>
+            </div>
+            <div class="sp-quickdays">
+                ${[5, 9, 13, 20, 21, 26, 50, 89, 100, 144, 200].map(p =>
+                    `<button class="sp-quick" data-period="${p}" ${p === emaPeriod ? 'data-current' : ""}>${p}</button>`
+                ).join("")}
+            </div>` : "";
+
+        const pop = document.createElement("div");
+        pop.id = "style-popover";
+        pop.className = "style-popover" + (isEma ? " sp-wide" : "");
+        pop.innerHTML = `
+            <div class="sp-header">
+                <span class="sp-title">${label}</span>
+                <button class="sp-close" title="Close">&times;</button>
+            </div>
+            ${visibleRow}
+            ${daysRow}
+            <div class="sp-row">
+                <label>Color</label>
+                <input type="color" class="sp-color" value="${st.color || "#58a6ff"}">
+                <span class="sp-hex">${(st.color || "#58a6ff").toUpperCase()}</span>
+            </div>
+            <div class="sp-row">
+                <label>Width</label>
+                <input type="range" class="sp-width" min="1" max="4" step="1" value="${st.width || 2}">
+                <span class="sp-width-val">${st.width || 2}px</span>
+            </div>
+            <div class="sp-row">
+                <label>Style</label>
+                <select class="sp-style">${styleOpts}</select>
+            </div>
+            ${isBB ? `
+            <div class="sp-row sp-row-multi">
+                <label>Bands</label>
+                <div class="sp-sub">
+                    <span><span class="sp-sub-lbl">Mid</span><input type="color" class="sp-mid" value="${styleAt("bb.middle")?.color || st.color}"></span>
+                    <span><span class="sp-sub-lbl">Low</span><input type="color" class="sp-low" value="${styleAt("bb.lower")?.color || st.color}"></span>
+                </div>
+            </div>` : ""}
+            <div class="sp-footer">
+                <button class="sp-reset">Reset</button>
+            </div>
+        `;
+        document.body.appendChild(pop);
+
+        // Position the popover near the anchor (clamped to viewport).
+        const popRect = pop.getBoundingClientRect();
+        let top = rect.bottom + 6;
+        let left = rect.left;
+        if (left + popRect.width > window.innerWidth - 8) left = window.innerWidth - popRect.width - 8;
+        if (top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 6;
+        pop.style.top = `${Math.max(8, top)}px`;
+        pop.style.left = `${Math.max(8, left)}px`;
+
+        const applyAndRender = () => {
+            applyStudyButtonStates();
+            renderAllCharts();
+        };
+
+        // Period change → settings + refetch (debounced).
+        const debouncedRefetch = debounce(() => {
+            saveSettings();
+            renderEmaPills();
+            applyStudyButtonStates();
+            if (currentTicker) doSearch();
+        }, 350);
+        const updateDays = (raw, { refetch = true } = {}) => {
+            if (!isEma) return;
+            const v = parseInt(raw, 10);
+            if (!Number.isFinite(v) || v < 2 || v > 500) return;
+            settings.emaPeriods = settings.emaPeriods || [];
+            while (settings.emaPeriods.length <= emaSlot) settings.emaPeriods.push(0);
+            settings.emaPeriods[emaSlot] = v;
+            updateIndicatorSummaries();
+            // Reflect the new period in the popover title and quick-pill highlighting.
+            const titleEl = pop.querySelector(".sp-title");
+            if (titleEl) titleEl.textContent = `EMA ${v}`;
+            pop.querySelectorAll(".sp-quick").forEach(q => q.toggleAttribute("data-current", parseInt(q.dataset.period, 10) === v));
+            if (refetch) debouncedRefetch();
+        };
+
+        if (isEma) {
+            const daysInput = pop.querySelector(".sp-days");
+            daysInput.addEventListener("input", e => updateDays(e.target.value));
+            pop.querySelectorAll(".sp-step").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const cur = parseInt(daysInput.value, 10) || 1;
+                    const delta = parseInt(btn.dataset.step, 10);
+                    daysInput.value = Math.max(2, Math.min(500, cur + delta));
+                    updateDays(daysInput.value);
+                });
+            });
+            pop.querySelectorAll(".sp-quick").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    daysInput.value = btn.dataset.period;
+                    updateDays(btn.dataset.period);
+                });
+            });
+            pop.querySelector(".sp-visible").addEventListener("change", (e) => {
+                studies.ema = studies.ema || {};
+                studies.ema[emaSlot] = !!e.target.checked;
+                saveStudies();
+                applyAndRender();
+            });
+        }
+
+        pop.querySelector(".sp-color").addEventListener("input", (e) => {
+            const color = e.target.value;
+            setStyle(path, { color });
+            if (path === "bb.upper") setStyle("bb.lower", { color });
+            const hex = pop.querySelector(".sp-hex");
+            if (hex) hex.textContent = color.toUpperCase();
+            applyAndRender();
+        });
+        pop.querySelector(".sp-width").addEventListener("input", (e) => {
+            const width = parseInt(e.target.value, 10);
+            setStyle(path, { width });
+            pop.querySelector(".sp-width-val").textContent = `${width}px`;
+            if (path === "bb.upper") setStyle("bb.lower", { width });
+            applyAndRender();
+        });
+        pop.querySelector(".sp-style").addEventListener("change", (e) => {
+            const lineStyle = parseInt(e.target.value, 10);
+            setStyle(path, { lineStyle });
+            if (path === "bb.upper") setStyle("bb.lower", { lineStyle });
+            applyAndRender();
+        });
+        if (isBB) {
+            pop.querySelector(".sp-mid").addEventListener("input", (e) => {
+                setStyle("bb.middle", { color: e.target.value });
+                applyAndRender();
+            });
+            pop.querySelector(".sp-low").addEventListener("input", (e) => {
+                setStyle("bb.lower", { color: e.target.value });
+                applyAndRender();
+            });
+        }
+        pop.querySelector(".sp-reset").addEventListener("click", () => {
+            const parts = path.split(".");
+            let def = DEFAULT_STUDIES.style;
+            for (const p of parts) def = def ? def[p] : null;
+            if (def) {
+                setStyle(path, { ...def });
+                if (path === "bb.upper") {
+                    setStyle("bb.middle", { ...DEFAULT_STUDIES.style.bb.middle });
+                    setStyle("bb.lower",  { ...DEFAULT_STUDIES.style.bb.lower });
+                }
+                // For EMA, also restore the default period in this slot.
+                if (isEma) {
+                    const defPeriods = [9, 21, 50, 200];
+                    const defaultPeriod = defPeriods[emaSlot] || (settings.emaPeriods || [])[emaSlot];
+                    const daysInput = pop.querySelector(".sp-days");
+                    if (daysInput && defaultPeriod) {
+                        daysInput.value = defaultPeriod;
+                        updateDays(defaultPeriod);
+                    }
+                }
+                closeStylePopover();
+                applyAndRender();
+            }
+        });
+        pop.querySelector(".sp-close").addEventListener("click", closeStylePopover);
+
+        // Defer so the click that opened the popover doesn't immediately close it.
+        setTimeout(() => {
+            document.addEventListener("mousedown", outsideStylePopover, true);
+            document.addEventListener("keydown", escClosesStylePopover, true);
+        }, 0);
+    }
+
+    function renderEmaPills() {
+        const container = document.getElementById("ema-pills");
+        if (!container) return;
+        const periods = (settings.emaPeriods || []).slice(0, 4);
+        container.innerHTML = periods.map((p, idx) => {
+            const st = styleAt(`ema.${idx}`) || { color: "#58a6ff" };
+            // Pencil/edit icon appears on hover and opens the same popover as the dot.
+            const editSvg = `<svg class="study-edit" data-style-path="ema.${idx}" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Edit"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
+            return `<button class="study-pill text-pill ema-pill" data-study="ema" data-slot="${idx}" title="Click to toggle · click dot or pencil to edit">
+                <span class="study-dot" data-style-path="ema.${idx}" style="background:${st.color}"></span>EMA ${p}${editSvg}
+            </button>`;
+        }).join("");
+
+        container.querySelectorAll(".study-pill").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                // Clicks on the dot or pencil open the popover; everything else toggles.
+                if (e.target.closest(".study-dot, .study-edit")) return;
+                const slot = parseInt(btn.dataset.slot, 10);
+                toggleEma(slot);
+                applyStudyButtonStates();
+                renderAllCharts();
+            });
+        });
+        wireStyleDots(container);
+        // Bind the pencil icon clicks (same handler as the dot).
+        container.querySelectorAll(".study-edit[data-style-path]").forEach(icon => {
+            if (icon.dataset.wired) return;
+            icon.dataset.wired = "1";
+            icon.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openStylePopover(icon.dataset.stylePath, icon);
+            });
+        });
+    }
+
+    function wireStyleDots(scope) {
+        (scope || document).querySelectorAll(".study-dot[data-style-path]").forEach(dot => {
+            // Make sure we don't double-bind.
+            if (dot.dataset.wired) return;
+            dot.dataset.wired = "1";
+            dot.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openStylePopover(dot.dataset.stylePath, dot);
+            });
+        });
+    }
+
+    function wireStudiesBar() {
+        const bar = document.getElementById("studies-bar");
+        if (!bar) return;
+
+        // Chart type pills.
+        bar.querySelectorAll("[data-group='chartType'] .study-pill").forEach(btn => {
+            btn.addEventListener("click", () => {
+                studies.chartType = btn.dataset.type || "candles";
+                saveStudies();
+                applyStudyButtonStates();
+                renderAllCharts();
+            });
+        });
+
+        // Toggle pills (single-key studies).
+        ["bb", "vwap", "volume", "rsi"].forEach(key => {
+            const el = bar.querySelector(`[data-study='${key}']`);
+            if (!el) return;
+            el.addEventListener("click", (e) => {
+                if (e.target.classList.contains("study-dot")) return;
+                studies[key] = !studies[key];
+                saveStudies();
+                applyStudyButtonStates();
+                renderAllCharts();
+            });
+        });
+        // Give BB / VWAP dots a style-path so they open the popover.
+        const bbDot = bar.querySelector("[data-study='bb'] .study-dot");
+        if (bbDot) bbDot.dataset.stylePath = "bb.upper";
+        const vwDot = bar.querySelector("[data-study='vwap'] .study-dot");
+        if (vwDot) vwDot.dataset.stylePath = "vwap";
+        wireStyleDots(bar);
+
+        // Log scale.
+        const logCb = document.getElementById("study-log");
+        if (logCb) {
+            logCb.addEventListener("change", () => {
+                studies.log = !!logCb.checked;
+                saveStudies();
+                renderAllCharts();
+            });
+        }
+
+        // Reset zoom.
+        const resetBtn = document.getElementById("study-reset");
+        if (resetBtn) {
+            resetBtn.addEventListener("click", () => {
+                [priceChart, macdChart, stochChart, rsiChart].forEach(c => {
+                    if (c) try { c.timeScale().fitContent(); } catch {}
+                });
+            });
+        }
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
         loadSettings();
+        loadStudies();
         loadWatchlist();
         loadPositions();
         loadTranslations().then(() => { applyLanguage(); populateSettingsUI(); });
         renderWatchlist();
         refreshWatchlistData();
+        renderEmaPills();
+        applyStudyButtonStates();
+        wireStudiesBar();
 
         // Welcome page
         initScrollReveals();
@@ -2127,10 +3148,20 @@
         setInterval(markTimestampStale, 60000);
 
         $$(".btn-period").forEach(btn => btn.addEventListener("click", () => {
+            if (btn.classList.contains("disabled")) return;
             $$(".btn-period").forEach(b => b.classList.remove("active"));
             btn.classList.add("active"); currentPeriod = btn.dataset.period;
             if (currentTicker) doSearch();
         }));
+
+        $$(".btn-interval").forEach(btn => btn.addEventListener("click", () => {
+            $$(".btn-interval").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            currentInterval = btn.dataset.interval;
+            applyIntervalConstraints();
+            if (currentTicker) doSearch();
+        }));
+        applyIntervalConstraints();
 
         $("#lang-toggle").addEventListener("click", () => { currentLang = currentLang === "en" ? "th" : "en"; applyLanguage(); });
 
@@ -2227,9 +3258,17 @@
 
         $("#settings-apply").addEventListener("click", () => {
             readSettingsFromUI(); saveSettings(); setOv.classList.add("hidden");
+            renderEmaPills();
+            applyStudyButtonStates();
             if (currentTicker) doSearch();
         });
-        $("#settings-reset").addEventListener("click", () => { settings = { ...DEFAULT_SETTINGS }; saveSettings(); populateSettingsUI(); });
+        $("#settings-reset").addEventListener("click", () => {
+            settings = { ...DEFAULT_SETTINGS, emaPeriods: [...DEFAULT_SETTINGS.emaPeriods] };
+            saveSettings();
+            populateSettingsUI();
+            renderEmaPills();
+            applyStudyButtonStates();
+        });
 
         document.addEventListener("keydown", e => { if (e.key === "Escape") { helpOv.classList.add("hidden"); setOv.classList.add("hidden"); closePositionForm(); } });
         window.addEventListener("resize", handleResize);

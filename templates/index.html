@@ -189,6 +189,13 @@
                     <button class="btn-period" data-period="1y">1Y</button>
                     <button class="btn-period" data-period="2y">2Y</button>
                     <button class="btn-period" data-period="5y">5Y</button>
+                    <span class="period-divider"></span>
+                    <button class="btn-interval" data-interval="1m" title="1 minute (last 5 days)">1m</button>
+                    <button class="btn-interval" data-interval="5m" title="5 minutes (last 30 days)">5m</button>
+                    <button class="btn-interval" data-interval="15m" title="15 minutes (last 30 days)">15m</button>
+                    <button class="btn-interval" data-interval="60m" title="1 hour (last 6 months)">1h</button>
+                    <button class="btn-interval active" data-interval="1d" title="Daily">1D</button>
+                    <button class="btn-interval" data-interval="1wk" title="Weekly">1W</button>
                 </div>
             </section>
 
@@ -368,7 +375,64 @@
                             <h3 data-i18n="priceChart">Price Chart</h3>
                             <span class="chart-legend" id="price-chart-legend"></span>
                         </div>
-                        <div id="price-chart" class="chart"></div>
+                        <!-- Studies toolbar (TradingView-style) -->
+                        <div class="studies-bar" id="studies-bar">
+                            <div class="studies-group">
+                                <span class="studies-label">Type</span>
+                                <div class="studies-pills" data-group="chartType">
+                                    <button class="study-pill" data-type="candles" title="Candlesticks">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="21"/><rect x="3" y="8" width="6" height="9" rx="1"/><line x1="18" y1="3" x2="18" y2="21"/><rect x="15" y="6" width="6" height="11" rx="1"/></svg>
+                                    </button>
+                                    <button class="study-pill" data-type="line" title="Line">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 6"/></svg>
+                                    </button>
+                                    <button class="study-pill" data-type="area" title="Area">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 9 11 13 15 21 6 21 20 3 20Z"/></svg>
+                                    </button>
+                                    <button class="study-pill" data-type="bars" title="OHLC bars">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="4" x2="6" y2="20"/><line x1="3" y1="10" x2="6" y2="10"/><line x1="6" y1="14" x2="9" y2="14"/><line x1="18" y1="4" x2="18" y2="20"/><line x1="15" y1="8" x2="18" y2="8"/><line x1="18" y1="16" x2="21" y2="16"/></svg>
+                                    </button>
+                                    <button class="study-pill text-pill" data-type="heikin" title="Heikin Ashi">HA</button>
+                                </div>
+                            </div>
+                            <div class="studies-divider"></div>
+                            <div class="studies-group">
+                                <span class="studies-label">Overlays</span>
+                                <div class="studies-pills" id="ema-pills"></div>
+                                <div class="studies-pills">
+                                    <button class="study-pill text-pill" data-study="bb"><span class="study-dot" style="background:#7c3aed"></span>BB</button>
+                                    <button class="study-pill text-pill" data-study="vwap"><span class="study-dot" style="background:#f0b429"></span>VWAP</button>
+                                    <button class="study-pill text-pill" data-study="volume"><span class="study-dot" style="background:#8b949e"></span>Vol</button>
+                                </div>
+                            </div>
+                            <div class="studies-divider"></div>
+                            <div class="studies-group">
+                                <span class="studies-label">Panes</span>
+                                <div class="studies-pills">
+                                    <button class="study-pill text-pill" data-study="rsi">RSI</button>
+                                </div>
+                            </div>
+                            <div class="studies-divider"></div>
+                            <div class="studies-group studies-group-tail">
+                                <label class="study-check" title="Logarithmic scale">
+                                    <input type="checkbox" id="study-log"><span>Log</span>
+                                </label>
+                                <button class="study-pill icon-only" id="study-reset" title="Reset zoom">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="chart-wrap">
+                            <div id="price-chart" class="chart"></div>
+                            <div class="chart-readout" id="price-readout"></div>
+                        </div>
+                    </div>
+                    <div class="chart-container" id="rsi-chart-container">
+                        <div class="chart-header">
+                            <h3>RSI</h3>
+                            <span class="chart-legend" id="rsi-chart-legend"></span>
+                        </div>
+                        <div id="rsi-chart" class="chart chart-small"></div>
                     </div>
                     <div class="chart-container" id="macd-chart-container">
                         <div class="chart-header">
@@ -577,6 +641,7 @@
             <div class="settings-tabs">
                 <button class="settings-tab active" data-stab="general">General</button>
                 <button class="settings-tab" data-stab="indicators">Indicators</button>
+                <button class="settings-tab" data-stab="studies">Chart Studies</button>
             </div>
             <div class="settings-body">
                 <!-- General Tab -->
@@ -626,6 +691,71 @@
                             <div class="settings-row"><label data-i18n="overbought">Overbought</label><input type="number" id="stoch-ob" value="80" min="50" max="95" step="5"></div>
                             <div class="settings-row"><label data-i18n="oversold">Oversold</label><input type="number" id="stoch-os" value="20" min="5" max="50" step="5"></div>
                         </div>
+                    </details>
+                </div>
+                <div class="settings-tab-content" id="stab-studies">
+                    <details class="settings-indicator-group" open>
+                        <summary>
+                            <span class="sig-icon">📈</span> EMA Overlays
+                            <span class="sig-summary" id="ema-summary">9 / 21 / 50 / 200</span>
+                        </summary>
+                        <div class="sig-body" id="ema-style-body">
+                            <!-- Filled by populateStyleControls() — 4 EMA rows with period / color / width / style. -->
+                        </div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">〰️</span> SMA Overlays
+                            <span class="sig-summary" id="sma-style-summary">styles</span>
+                        </summary>
+                        <div class="sig-body" id="sma-style-body"></div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">📊</span> Bollinger Bands
+                            <span class="sig-summary" id="bb-summary">20 / 2.0</span>
+                        </summary>
+                        <div class="sig-body">
+                            <div class="settings-row"><label>Period</label><input type="number" id="bb-period" value="20" min="5" max="200" step="1"></div>
+                            <div class="settings-row"><label>Std Dev</label><input type="number" id="bb-std" value="2.0" min="0.5" max="4" step="0.1"></div>
+                            <div id="bb-style-body"></div>
+                        </div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">⚡</span> RSI
+                            <span class="sig-summary" id="rsi-summary">14 · 70/30</span>
+                        </summary>
+                        <div class="sig-body">
+                            <div class="settings-row"><label>Period</label><input type="number" id="rsi-period" value="14" min="2" max="100" step="1"></div>
+                            <div class="settings-row"><label>Overbought</label><input type="number" id="rsi-ob" value="70" min="50" max="95" step="5"></div>
+                            <div class="settings-row"><label>Oversold</label><input type="number" id="rsi-os" value="30" min="5" max="50" step="5"></div>
+                            <div id="rsi-style-body"></div>
+                        </div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">💧</span> VWAP
+                            <span class="sig-summary" id="vwap-summary">20</span>
+                        </summary>
+                        <div class="sig-body">
+                            <div class="settings-row"><label>Rolling Period</label><input type="number" id="vwap-period" value="20" min="2" max="200" step="1"></div>
+                            <div id="vwap-style-body"></div>
+                        </div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">📉</span> MACD
+                            <span class="sig-summary">colors</span>
+                        </summary>
+                        <div class="sig-body" id="macd-style-body"></div>
+                    </details>
+                    <details class="settings-indicator-group">
+                        <summary>
+                            <span class="sig-icon">🔀</span> Stochastic
+                            <span class="sig-summary">colors</span>
+                        </summary>
+                        <div class="sig-body" id="stoch-style-body"></div>
                     </details>
                 </div>
             </div>

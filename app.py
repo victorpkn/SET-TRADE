@@ -59,6 +59,7 @@ def get_stock(ticker):
     try:
         period = request.args.get("period", "6mo")
         market = request.args.get("market", "set")
+        interval = request.args.get("interval", "1d")
 
         params = {
             "sma_short": int(request.args.get("sma_short", 20)),
@@ -70,9 +71,14 @@ def get_stock(ticker):
             "stoch_smooth": int(request.args.get("stoch_smooth", 3)),
             "stoch_ob": int(request.args.get("stoch_ob", 80)),
             "stoch_os": int(request.args.get("stoch_os", 20)),
+            "ema_periods": request.args.get("ema_periods", "9,21,50,200"),
+            "bb_period": int(request.args.get("bb_period", 20)),
+            "bb_std": float(request.args.get("bb_std", 2.0)),
+            "rsi_period": int(request.args.get("rsi_period", 14)),
+            "vwap_period": int(request.args.get("vwap_period", 20)),
         }
 
-        data = fetch_stock_data(ticker, period, market)
+        data = fetch_stock_data(ticker, period, market, interval)
         if "error" in data:
             return jsonify(data), 404
 
