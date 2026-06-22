@@ -1,0 +1,76 @@
+{
+  "themes": [
+    {
+      "key": "ai-infra",
+      "label": "AI Infrastructure",
+      "icon": "⚡",
+      "color": "#7c3aed",
+      "blurb": "Picks-and-shovels for the AI build-out: GPUs, training capacity, neoclouds.",
+      "tickers": ["NVDA", "AMD", "AVGO", "NBIS", "CRWV", "ORCL", "ANET", "VRT", "DLR", "EQIX"]
+    },
+    {
+      "key": "data-centers",
+      "label": "Data Centers & Power",
+      "icon": "🏢",
+      "color": "#58a6ff",
+      "blurb": "Hyperscale capacity, colocation, and the power infrastructure feeding it.",
+      "tickers": ["IREN", "APLD", "DLR", "EQIX", "VRT", "ETN", "GEV", "NEE", "CEG", "TLN"]
+    },
+    {
+      "key": "semis",
+      "label": "Semiconductors",
+      "icon": "🔬",
+      "color": "#3fb950",
+      "blurb": "Foundries, fabless, equipment, advanced packaging, and analog/IP.",
+      "tickers": ["NVDA", "TSM", "AMD", "AVGO", "INTC", "TTMI", "ASML", "AMAT", "LRCX", "KLAC", "ARM", "MU"]
+    },
+    {
+      "key": "space",
+      "label": "Space Economy",
+      "icon": "🚀",
+      "color": "#bc8cff",
+      "blurb": "Launch, sat-comms, EO imagery, in-space manufacturing.",
+      "tickers": ["RKLB", "ASTS", "PL", "IRDM", "LUNR", "BKSY", "RDW", "MNTS", "AVAV"]
+    },
+    {
+      "key": "defense",
+      "label": "Defense & Primes",
+      "icon": "🛡️",
+      "color": "#f0b429",
+      "blurb": "Primes, missile defense, drones, naval, and frontier defense tech.",
+      "tickers": ["LMT", "RTX", "NOC", "GD", "LHX", "HII", "AVAV", "KTOS", "PLTR", "ANDR", "BWXT"]
+    },
+    {
+      "key": "energy-transition",
+      "label": "Energy Transition",
+      "icon": "⚛️",
+      "color": "#06d6a0",
+      "blurb": "Nuclear (incl. SMRs), grid build-out, advanced fuels, fusion.",
+      "tickers": ["BWXT", "SMR", "OKLO", "CCJ", "URA", "NXE", "LEU", "GEV", "ETN", "FSLR", "ENPH"]
+    },
+    {
+      "key": "quantum",
+      "label": "Quantum Computing",
+      "icon": "🧬",
+      "color": "#ff6b9d",
+      "blurb": "Pure-play quantum hardware and algorithms — early stage, high beta.",
+      "tickers": ["QBTS", "IONQ", "RGTI", "QUBT"]
+    },
+    {
+      "key": "robotics",
+      "label": "Robotics & Automation",
+      "icon": "🤖",
+      "color": "#f78166",
+      "blurb": "Humanoid, industrial automation, autonomy software stack.",
+      "tickers": ["TSLA", "ABB", "ISRG", "ROK", "FANUY", "SYM", "BRZE"]
+    },
+    {
+      "key": "biotech-frontier",
+      "label": "Frontier Biotech",
+      "icon": "🧪",
+      "color": "#56d364",
+      "blurb": "Gene editing, longevity, weight-loss, oncology platforms.",
+      "tickers": ["CRSP", "BEAM", "NTLA", "VKTX", "MDGL", "RXRX", "RGNX"]
+    }
+  ]
+}

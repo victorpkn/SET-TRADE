@@ -7,6 +7,12 @@ from services.technical import compute_indicators
 from services.signals import evaluate_signals
 from services.fundamentals import fetch_fundamentals
 from services.valuation import fetch_dcf
+from services.research import fetch_research
+from services.sr import detect_levels, average_true_range
+from services.scenarios import build_scenarios
+from services.entry_zones import build_entry_zones
+from services.themes import list_themes, themes_for_ticker, aggregate_portfolio_themes
+from services.narrative import build_brief
 from services.backtest import run_backtest
 from services.set_tickers import search_set
 from services.yf_session import Ticker, get_session_info, yf_fetch_with_retry, get_cached_info
@@ -106,6 +112,161 @@ def get_summary(ticker):
     except Exception as e:
         app.logger.error(f"Error in /api/summary/{ticker}: {traceback.format_exc()}")
         return jsonify({"error": "Failed to fetch summary data.", "retryable": True}), 503
+
+
+@app.route("/api/themes")
+def get_themes():
+    """List all tactical themes with their ticker lists (for welcome chips)."""
+    return jsonify({"themes": list_themes()})
+
+
+@app.route("/api/brief/<ticker>")
+def get_brief(ticker):
+    """Synthesize the 10-section analyst brief for a ticker.
+
+    Pulls live data from the existing technical, research, and valuation modules
+    and feeds them through the deterministic narrative engine. No LLM in the loop —
+    every sentence is generated from structured inputs and is fully reproducible.
+    """
+    try:
+        market = request.args.get("market", "set")
+        symbol = normalize_ticker(ticker, market)
+
+        # ── 1. Price + technicals (~6 months daily) ─────────────────────────
+        price_data = fetch_stock_data(ticker, period="1y", market=market, interval="1d")
+        if "error" in price_data:
+            return jsonify(price_data), 404
+        df = price_data["df"]
+        indicators = compute_indicators(df, params={"ema_periods": "20,50,100,200"})
+
+        def last_value(series_list):
+            return series_list[-1]["value"] if series_list else None
+
+        ema20 = last_value(indicators["ema"]["series"].get("20", []))
+        ema50 = last_value(indicators["ema"]["series"].get("50", []))
+        ema100 = last_value(indicators["ema"]["series"].get("100", []))
+        ema200 = last_value(indicators["ema"]["series"].get("200", []))
+        rsi_series = indicators["rsi"]["series"]
+        rsi_latest = rsi_series[-1]["value"] if rsi_series else None
+        macd_series = indicators["macd"]
+        macd_line_latest = macd_series[-1]["macd"] if macd_series else None
+        macd_signal_latest = macd_series[-1]["signal"] if macd_series else None
+        macd_hist_latest = macd_series[-1]["histogram"] if macd_series else None
+
+        price = float(df["Close"].iloc[-1])
+        atr = average_true_range(df, period=14)
+        atr_pct = (atr / price) if (atr and price) else None
+
+        # ── 2. Support / Resistance ─────────────────────────────────────────
+        sr_data = detect_levels(df, price, swing_window=5)
+
+        # ── 3. Fundamentals + analyst targets ───────────────────────────────
+        info = get_cached_info(symbol) or {}
+        ccy = info.get("currency", "")
+        name = info.get("longName") or info.get("shortName") or symbol
+        analyst_targets = None
+        if info.get("targetMeanPrice") or info.get("targetHighPrice"):
+            analyst_targets = {
+                "low": info.get("targetLowPrice"),
+                "mean": info.get("targetMeanPrice"),
+                "high": info.get("targetHighPrice"),
+            }
+
+        # ── 4. DCF intrinsic value (best-effort, may be unavailable) ────────
+        dcf_intrinsic = None
+        try:
+            dcf_result = fetch_dcf(ticker, market)
+            if "error" not in dcf_result:
+                dcf_intrinsic = dcf_result.get("intrinsicValue")
+        except Exception as e:
+            app.logger.debug(f"brief: DCF failed for {symbol}: {e}")
+
+        # ── 5. Research scores (moat + mgmt + MoS) ──────────────────────────
+        moat_score = moat_grade = mgmt_grade = None
+        mos_methods = []
+        try:
+            research = fetch_research(ticker, market)
+            if "error" not in research:
+                moat_score = research["moat"].get("score")
+                moat_grade = research["moat"].get("grade")
+                mgmt_grade = research["management"].get("grade")
+                mos_methods = research["valueChecks"].get("marginOfSafety", [])
+        except Exception as e:
+            app.logger.debug(f"brief: research failed for {symbol}: {e}")
+
+        # ── 6. Themes ───────────────────────────────────────────────────────
+        themes = themes_for_ticker(ticker)
+
+        # ── 7. Scenarios (uses everything above) ────────────────────────────
+        trend_state = (
+            "uptrend" if (price and ema20 and ema50 and ema200 and price > ema20 > ema50 > ema200)
+            else "downtrend" if (price and ema20 and ema50 and ema200 and price < ema20 < ema50 < ema200)
+            else "range"
+        )
+        scenarios_data = build_scenarios(
+            current_price=price,
+            atr=atr,
+            dcf_intrinsic=dcf_intrinsic,
+            analyst_targets=analyst_targets,
+            rsi=rsi_latest,
+            trend_state=trend_state,
+            themes=themes,
+            ticker=symbol,
+            currency=ccy,
+        )
+
+        # ── 7b. Entry zones (Excellent / Good / Fair / Expensive) ───────────
+        mos_safe_count = sum(1 for m in mos_methods if m.get("verdict") == "good")
+        entry_zones_data = build_entry_zones(
+            current_price=price,
+            atr=atr,
+            support_levels=sr_data.get("support", []),
+            resistance_levels=sr_data.get("resistance", []),
+            moat_grade=moat_grade,
+            mos_summary_safe=mos_safe_count,
+            currency=ccy,
+        )
+
+        # ── 8. Stitch the narrative ─────────────────────────────────────────
+        brief = build_brief({
+            "ticker": symbol, "name": name, "currency": ccy,
+            "price": price,
+            "ema20": ema20, "ema50": ema50, "ema100": ema100, "ema200": ema200,
+            "rsi": rsi_latest,
+            "macd_line": macd_line_latest,
+            "macd_signal": macd_signal_latest,
+            "macd_hist": macd_hist_latest,
+            "atr": atr, "atr_pct": atr_pct,
+            "sr_data": sr_data,
+            "entry_zones_data": entry_zones_data,
+            "scenarios_data": scenarios_data,
+            "moat_score": moat_score, "moat_grade": moat_grade,
+            "mgmt_grade": mgmt_grade,
+            "mos_methods": mos_methods,
+            "dcf_intrinsic": dcf_intrinsic,
+            "themes": themes,
+            "info": info,
+            "debtToEquity": info.get("debtToEquity"),
+        })
+
+        return jsonify(brief)
+    except Exception as e:
+        app.logger.error(f"Error in /api/brief/{ticker}: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to build brief.", "retryable": True}), 503
+
+
+@app.route("/api/research/<ticker>")
+def get_research(ticker):
+    try:
+        market = request.args.get("market", "set")
+        data = fetch_research(ticker, market)
+        if "error" in data:
+            status = 503 if data.get("retryable") else 404
+            return jsonify(data), status
+        return jsonify(data)
+    except Exception as e:
+        app.logger.error(f"Error in /api/research/{ticker}: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to fetch research data.", "retryable": True}), 503
 
 
 @app.route("/api/valuation/<ticker>")
@@ -252,11 +413,42 @@ def get_portfolio():
             sector_map[s] = sector_map.get(s, 0) + h["value"]
         sectors = [{"name": k, "value": round(v, 2), "pct": round(v / total_value * 100, 1) if total_value > 0 else 0} for k, v in sorted(sector_map.items(), key=lambda x: -x[1])]
 
+        # Theme concentration — a holding can belong to multiple tactical themes.
+        themes_breakdown = aggregate_portfolio_themes(holdings) if total_value > 0 else []
+        for theme in themes_breakdown:
+            theme["pct"] = round(theme["value"] / total_value * 100, 1) if total_value > 0 else 0
+
+        # Concentration risk flags: 30% warning, 50% heavy, 65% extreme.
+        risk_flags = []
+        for h in holdings:
+            w = h.get("weight", 0)
+            if w >= 65:
+                level = "extreme"
+            elif w >= 50:
+                level = "heavy"
+            elif w >= 30:
+                level = "warning"
+            else:
+                continue
+            risk_flags.append({
+                "ticker": h["ticker"],
+                "name": h["name"],
+                "weight": w,
+                "level": level,
+                "message": {
+                    "extreme": f"{h['ticker']} is {w}% of the portfolio — single-name risk is extreme. Consider trimming.",
+                    "heavy":   f"{h['ticker']} is {w}% of the portfolio — concentration is heavy.",
+                    "warning": f"{h['ticker']} is {w}% of the portfolio — approaching concentration limits.",
+                }[level],
+            })
+
         return jsonify({
             "totalValue": round(total_value, 2), "totalCost": round(total_cost, 2),
             "totalPnl": round(total_pnl, 2), "totalPnlPct": round(total_pnl_pct, 2),
             "totalDayPnl": round(total_day_pnl, 2),
             "holdings": holdings, "sectors": sectors,
+            "themes": themes_breakdown,
+            "riskFlags": risk_flags,
         })
     except Exception as e:
         app.logger.error(f"Error in /api/portfolio: {e}")

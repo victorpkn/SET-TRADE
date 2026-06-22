@@ -96,9 +96,9 @@
                 <div class="welcome-mesh"></div>
                 <canvas id="burst-canvas" class="burst-canvas"></canvas>
                 <div class="welcome-hero">
-                    <div class="welcome-badge">Stock Intelligence Platform</div>
-                    <h2 class="welcome-title">Navigate the market<br>with <span class="welcome-gradient">precision</span></h2>
-                    <p class="welcome-sub">Technical signals, fundamental analysis, DCF valuation, and portfolio tracking — all in one place.</p>
+                    <div class="welcome-badge">Tactical Research Terminal</div>
+                    <h2 class="welcome-title">Where capital meets<br><span class="welcome-gradient">conviction</span></h2>
+                    <p class="welcome-sub">Built for high-upside themes: AI infrastructure, data centers, semis, space, defense, energy transition, quantum.</p>
                     <div class="welcome-typewriter">
                         <span class="tw-prompt">&gt;</span>
                         <span class="tw-text" id="tw-text"></span>
@@ -157,16 +157,27 @@
                 </div>
                 <div class="welcome-cta">
                     <div class="welcome-search-glow">
-                        <input type="text" id="welcome-search" placeholder="Try searching PTT, AAPL, or AOT..." autocomplete="off" spellcheck="false">
-                        <button class="btn-primary" id="welcome-search-btn">Analyze</button>
+                        <input type="text" id="welcome-search" placeholder="Search any ticker — NVDA, RKLB, IREN, OKLO, PTT..." autocomplete="off" spellcheck="false">
+                        <button class="btn-primary" id="welcome-search-btn">Brief Me</button>
                     </div>
                     <div class="welcome-quick">
-                        <span class="wq-label">Popular:</span>
+                        <span class="wq-label">Themes:</span>
+                        <div class="welcome-theme-row" id="welcome-theme-chips"></div>
+                    </div>
+                    <div class="welcome-quick">
+                        <span class="wq-label">Hot tickers:</span>
+                        <button class="wq-chip" data-ticker="NVDA" data-market="us">NVDA</button>
+                        <button class="wq-chip" data-ticker="NBIS" data-market="us">NBIS</button>
+                        <button class="wq-chip" data-ticker="IREN" data-market="us">IREN</button>
+                        <button class="wq-chip" data-ticker="APLD" data-market="us">APLD</button>
+                        <button class="wq-chip" data-ticker="RKLB" data-market="us">RKLB</button>
+                        <button class="wq-chip" data-ticker="ASTS" data-market="us">ASTS</button>
+                        <button class="wq-chip" data-ticker="OKLO" data-market="us">OKLO</button>
+                        <button class="wq-chip" data-ticker="BWXT" data-market="us">BWXT</button>
+                        <button class="wq-chip" data-ticker="INTC" data-market="us">INTC</button>
+                        <button class="wq-chip" data-ticker="TTMI" data-market="us">TTMI</button>
+                        <button class="wq-chip" data-ticker="QBTS" data-market="us">QBTS</button>
                         <button class="wq-chip" data-ticker="PTT" data-market="set">PTT</button>
-                        <button class="wq-chip" data-ticker="AAPL" data-market="us">AAPL</button>
-                        <button class="wq-chip" data-ticker="AOT" data-market="set">AOT</button>
-                        <button class="wq-chip" data-ticker="TSLA" data-market="us">TSLA</button>
-                        <button class="wq-chip" data-ticker="CPALL" data-market="set">CPALL</button>
                     </div>
                 </div>
             </section>
@@ -304,14 +315,25 @@
                 </div>
 
                 <div class="tab-bar">
-                    <button class="tab-btn active" data-tab="signals" data-i18n="tabSignals">Signals</button>
+                    <button class="tab-btn active" data-tab="brief" data-i18n="tabBrief">Brief</button>
+                    <button class="tab-btn" data-tab="signals" data-i18n="tabSignals">Signals</button>
                     <button class="tab-btn" data-tab="summary" data-i18n="tabSummary">Summary</button>
+                    <button class="tab-btn" data-tab="research" data-i18n="tabResearch">Research</button>
                     <button class="tab-btn" data-tab="valuation" data-i18n="tabValuation">Valuation</button>
                     <button class="tab-btn" data-tab="backtest" data-i18n="tabBacktest">Backtest</button>
                 </div>
 
+                <!-- Brief Tab — 10-section analyst-style synthesis (default landing tab) -->
+                <div class="tab-content active" id="tab-brief">
+                    <div id="brief-loading" class="loading hidden">
+                        <div class="spinner"></div>
+                        <span data-i18n="loading">Fetching data...</span>
+                    </div>
+                    <div id="brief-content"></div>
+                </div>
+
                 <!-- Signals Tab -->
-                <div class="tab-content active" id="tab-signals">
+                <div class="tab-content" id="tab-signals">
                     <!-- Signal Gauge -->
                     <div class="signal-gauge-card" id="signal-card">
                         <div class="gauge-header">
@@ -466,6 +488,15 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Research Tab — Buffett-style qualitative analysis -->
+                <div class="tab-content" id="tab-research">
+                    <div id="research-loading" class="loading hidden">
+                        <div class="spinner"></div>
+                        <span data-i18n="loading">Fetching data...</span>
+                    </div>
+                    <div id="research-content"></div>
                 </div>
 
                 <!-- Valuation Tab -->

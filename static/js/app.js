@@ -10,6 +10,9 @@
     let activeIndicators = new Set(["sma", "macd", "stochastic"]);
     let summaryCache = {};
     let valuationCache = {};
+    let researchCache = {};
+    let briefCache = {};
+    let themesCache = null;
     let translations = {};
     let watchlist = [];
     let compareMode = false;
@@ -1519,6 +1522,620 @@
         document.addEventListener("keydown", onKey);
     }
 
+    // ── Brief Tab — 10-section synthesized analyst report ──
+
+    async function fetchBrief(retryCount = 0) {
+        const MAX_RETRIES = 2;
+        const RETRY_DELAYS = [1500, 3000];
+        const key = `${currentTicker}-${currentMarket}`;
+        const ticker = currentTicker;
+        if (briefCache[key]) { renderBrief(briefCache[key]); return; }
+        $("#brief-loading").classList.remove("hidden");
+        if (retryCount === 0) $("#brief-content").innerHTML = "";
+        try {
+            const res = await fetchWithTimeout(
+                `/api/brief/${encodeURIComponent(ticker)}?market=${currentMarket}`,
+                {}, 30000  // brief synthesizes from many sources, allow generous timeout
+            );
+            if (currentTicker !== ticker) return;
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                const err = new Error(d.error || "Failed to load brief");
+                err.retryable = d.retryable || res.status >= 500;
+                throw err;
+            }
+            const data = await res.json();
+            if (currentTicker !== ticker) return;
+            briefCache[key] = data;
+            renderBrief(data);
+        } catch (err) {
+            if (currentTicker !== ticker) return;
+            const isTimeout = err.name === "TimeoutError";
+            if (!isTimeout && err.retryable && retryCount < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
+                if (currentTicker === ticker) return fetchBrief(retryCount + 1);
+                return;
+            }
+            const retryBtn = (err.retryable || isTimeout)
+                ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-brief'))">Retry</button>`
+                : "";
+            $("#brief-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
+        } finally {
+            if (currentTicker === ticker) $("#brief-loading").classList.add("hidden");
+        }
+    }
+    document.addEventListener("retry-brief", () => { briefCache = {}; fetchBrief(); });
+
+    /** Lightweight Markdown subset: **bold** only. Used by narrative section text. */
+    function inlineMd(s) {
+        if (!s) return "";
+        const esc = s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return esc.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    }
+
+    function verdictIcon(v) {
+        if (v === "good") return "▲";
+        if (v === "bad") return "▼";
+        return "◆";
+    }
+
+    function renderBrief(data) {
+        const sections = data.sections || [];
+        const ccy = data.currency || "";
+
+        // ── Header: ticker, price, headline, theme chips ─────────────────────
+        const themeChips = (data.themes || []).map(th =>
+            `<span class="theme-chip" style="--theme-color:${th.color}">${th.icon || ""} ${th.label}</span>`
+        ).join("");
+
+        let html = `<div class="brief-header">
+            <div class="brief-header-top">
+                <div>
+                    <div class="brief-ticker-line">
+                        <span class="brief-ticker">${data.ticker || ""}</span>
+                        <span class="brief-name">${data.name || ""}</span>
+                    </div>
+                    <div class="brief-themes">${themeChips || `<span class="theme-chip theme-chip-muted">${t("brief_noTheme")}</span>`}</div>
+                </div>
+                <div class="brief-price-block">
+                    <div class="brief-price">${ccy} ${data.price != null ? data.price.toFixed(2) : "—"}</div>
+                </div>
+            </div>
+            <div class="brief-headline">${inlineMd(data.headline || "")}</div>
+        </div>`;
+
+        // ── Sections grid ────────────────────────────────────────────────────
+        html += `<div class="brief-sections">`;
+        for (const sec of sections) {
+            html += renderBriefSection(sec, ccy);
+        }
+        html += `</div>`;
+
+        // ── Notes section (Phase F) ──────────────────────────────────────────
+        html += renderNotesSection(data.ticker, currentMarket);
+
+        // ── Disclaimer ───────────────────────────────────────────────────────
+        html += `<div class="brief-disclaimer">
+            ${t("brief_disclaimer")}
+        </div>`;
+
+        $("#brief-content").innerHTML = html;
+
+        // Wire notes after innerHTML write
+        wireNotesHandlers(data.ticker, currentMarket);
+    }
+
+    function renderBriefSection(sec, ccy) {
+        const vCls = sec.verdict || "neutral";
+        const icon = verdictIcon(vCls);
+
+        let body = "";
+        if (sec.key === "sr") {
+            body = renderSrBody(sec, ccy);
+        } else if (sec.key === "entry_zones") {
+            body = renderEntryZonesBody(sec, ccy);
+        } else if (sec.key === "scenarios") {
+            body = renderScenariosBody(sec, ccy);
+        } else if (sec.key === "catalysts" || sec.key === "risks") {
+            body = renderItemsBody(sec);
+        } else {
+            body = `<p class="brief-text">${inlineMd(sec.text || "")}</p>`;
+        }
+
+        const sizingChip = (sec.key === "portfolio" && sec.sizing)
+            ? `<span class="brief-sizing-chip sizing-${sec.sizing}">${t("brief_sizing_" + sec.sizing) || sec.sizing}</span>`
+            : "";
+
+        return `<div class="brief-section verdict-${vCls}" data-section="${sec.key}">
+            <div class="brief-section-head">
+                <span class="brief-verdict-icon ${vCls}">${icon}</span>
+                <h3 class="brief-section-title">${sec.title}</h3>
+                ${sizingChip}
+            </div>
+            <div class="brief-section-body">${body}</div>
+        </div>`;
+    }
+
+    function renderSrBody(sec, ccy) {
+        const support = sec.support || [];
+        const resistance = sec.resistance || [];
+        const renderLevel = (lvl, kind) => `
+            <div class="sr-level sr-${kind}">
+                <span class="sr-price">${ccy} ${lvl.price.toFixed(2)}</span>
+                <span class="sr-distance ${kind}">${lvl.distancePct > 0 ? "+" : ""}${lvl.distancePct.toFixed(1)}%</span>
+                <span class="sr-touches">${lvl.touches}× ${t("brief_touches")}</span>
+            </div>`;
+        return `<p class="brief-text">${inlineMd(sec.text || "")}</p>
+            <div class="sr-grid">
+                <div class="sr-column">
+                    <div class="sr-column-label resistance">${t("brief_resistance")}</div>
+                    ${resistance.length ? resistance.map(l => renderLevel(l, "resistance")).join("") : `<div class="sr-empty">${t("brief_noResistance")}</div>`}
+                </div>
+                <div class="sr-column">
+                    <div class="sr-column-label support">${t("brief_support")}</div>
+                    ${support.length ? support.map(l => renderLevel(l, "support")).join("") : `<div class="sr-empty">${t("brief_noSupport")}</div>`}
+                </div>
+            </div>`;
+    }
+
+    function renderEntryZonesBody(sec, ccy) {
+        const zones = sec.zones || [];
+        const cp = sec.currentPrice;
+        const cpLabel = cp != null
+            ? `<div class="ez-current">${t("brief_currentPrice")}: <strong>${ccy} ${cp.toFixed(2)}</strong></div>`
+            : "";
+        const rows = zones.map(z => {
+            const priceLabel = z.high == null
+                ? `${ccy} ${z.low.toFixed(2)}+`
+                : `${ccy} ${z.low.toFixed(2)} – ${z.high.toFixed(2)}`;
+            const currentBadge = z.current ? `<span class="ez-current-pin">${t("brief_youAreHere")}</span>` : "";
+            return `<div class="ez-row ez-${z.key} ${z.current ? "ez-row-current" : ""}">
+                <div class="ez-band">
+                    <span class="ez-label">${z.label}</span>
+                    ${currentBadge}
+                </div>
+                <div class="ez-price">${priceLabel}</div>
+                <div class="ez-rationale">${z.rationale || ""}</div>
+            </div>`;
+        }).join("");
+        return `${cpLabel}<div class="ez-grid">${rows}</div>`;
+    }
+
+    function renderScenariosBody(sec, ccy) {
+        const scenarios = sec.scenarios || [];
+        const cp = sec.currentPrice;
+        const cpLabel = cp != null
+            ? `<div class="ez-current">${t("brief_currentPrice")}: <strong>${ccy} ${cp.toFixed(2)}</strong></div>`
+            : "";
+
+        const rows = scenarios.map(s => {
+            const rangeLabel = `${ccy} ${s.priceLow.toFixed(2)} – ${s.priceHigh.toFixed(2)}`;
+            const retLowSign = s.returnLowPct >= 0 ? "+" : "";
+            const retHighSign = s.returnHighPct >= 0 ? "+" : "";
+            const retRange = `${retLowSign}${s.returnLowPct.toFixed(0)}% / ${retHighSign}${s.returnHighPct.toFixed(0)}%`;
+            return `<div class="sc-row sc-${s.key}">
+                <div class="sc-band">
+                    <span class="sc-label scenario-${s.key}">${s.label}</span>
+                    <span class="sc-prob">${s.probability}%</span>
+                </div>
+                <div class="sc-price">
+                    <span class="sc-price-range">${rangeLabel}</span>
+                    <span class="sc-return">${retRange}</span>
+                </div>
+                <div class="sc-rationale">${s.rationale || ""}</div>
+            </div>`;
+        }).join("");
+
+        const anchors = sec.anchors || {};
+        const tech = anchors.technical || {};
+        const dcf = anchors.dcf || {};
+        const ana = anchors.analyst || {};
+        const anchorBits = [];
+        if (tech.annualVolPct != null) anchorBits.push(`<span class="anchor-pill">${t("brief_anchor_vol")}: ${tech.annualVolPct}%</span>`);
+        if (dcf.intrinsic != null) anchorBits.push(`<span class="anchor-pill">${t("brief_anchor_dcf")}: ${ccy} ${dcf.intrinsic.toFixed(2)}</span>`);
+        if (ana.mean != null) anchorBits.push(`<span class="anchor-pill">${t("brief_anchor_analyst")}: ${ccy} ${ana.mean.toFixed(2)}</span>`);
+
+        return `${cpLabel}<div class="sc-grid">${rows}</div>
+            ${anchorBits.length ? `<div class="brief-anchors">${t("brief_anchors")}: ${anchorBits.join(" ")}</div>` : ""}`;
+    }
+
+    function renderItemsBody(sec) {
+        const items = sec.items || [];
+        if (!items.length) return `<p class="brief-text">${t("brief_noItems")}</p>`;
+        return `<ul class="brief-items">${items.map(it => `
+            <li>
+                <strong>${it.label}</strong>
+                <span class="brief-item-detail">${it.detail || ""}</span>
+            </li>`).join("")}</ul>`;
+    }
+
+    // ── Notes section (Phase F: per-ticker thesis journal) ──────────────────
+
+    function notesKey(ticker, market) {
+        return `vv:notes:${market}:${(ticker || "").toUpperCase()}`;
+    }
+    function getNotes(ticker, market) {
+        try { return localStorage.getItem(notesKey(ticker, market)) || ""; }
+        catch { return ""; }
+    }
+    function saveNotes(ticker, market, text) {
+        try { localStorage.setItem(notesKey(ticker, market), text); }
+        catch (e) { console.warn("notes save failed", e); }
+    }
+
+    function renderNotesSection(ticker, market) {
+        const existing = getNotes(ticker, market);
+        return `<div class="brief-notes">
+            <div class="brief-notes-head">
+                <h3 class="brief-section-title">${t("brief_notes")}</h3>
+                <span class="brief-notes-status" id="brief-notes-status"></span>
+            </div>
+            <textarea id="brief-notes-textarea" class="brief-notes-textarea"
+                placeholder="${t("brief_notesPlaceholder")}">${existing.replace(/</g, "&lt;")}</textarea>
+        </div>`;
+    }
+
+    function wireNotesHandlers(ticker, market) {
+        const ta = $("#brief-notes-textarea");
+        const status = $("#brief-notes-status");
+        if (!ta) return;
+        let debounce = null;
+        ta.addEventListener("input", () => {
+            clearTimeout(debounce);
+            if (status) status.textContent = t("brief_notesSaving");
+            debounce = setTimeout(() => {
+                saveNotes(ticker, market, ta.value);
+                if (status) {
+                    status.textContent = t("brief_notesSaved");
+                    setTimeout(() => { if (status) status.textContent = ""; }, 1500);
+                }
+            }, 500);
+        });
+    }
+
+    // ── Research Tab — Buffett-style qualitative analysis ──
+
+    async function fetchResearch(retryCount = 0) {
+        const MAX_RETRIES = 2;
+        const RETRY_DELAYS = [1500, 3000];
+        const key = `${currentTicker}-${currentMarket}`;
+        const ticker = currentTicker;
+        if (researchCache[key]) { renderResearch(researchCache[key]); return; }
+        $("#research-loading").classList.remove("hidden");
+        if (retryCount === 0) $("#research-content").innerHTML = "";
+        try {
+            const res = await fetchWithTimeout(
+                `/api/research/${encodeURIComponent(ticker)}?market=${currentMarket}`,
+                {},
+                25000  // longer timeout: pulls 3 financial statements + insider txns
+            );
+            if (currentTicker !== ticker) return;
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                const err = new Error(d.error || "Failed to load research");
+                err.retryable = d.retryable || res.status >= 500;
+                throw err;
+            }
+            const data = await res.json();
+            if (currentTicker !== ticker) return;
+            researchCache[key] = data;
+            renderResearch(data);
+        } catch (err) {
+            if (currentTicker !== ticker) return;
+            const isTimeout = err.name === "TimeoutError";
+            if (!isTimeout && err.retryable && retryCount < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, RETRY_DELAYS[retryCount] || 2000));
+                if (currentTicker === ticker) return fetchResearch(retryCount + 1);
+                return;
+            }
+            const retryBtn = (err.retryable || isTimeout)
+                ? ` <button class="retry-btn" onclick="document.dispatchEvent(new CustomEvent('retry-research'))">Retry</button>`
+                : "";
+            $("#research-content").innerHTML = `<div class="error-msg">${err.message}${retryBtn}</div>`;
+        } finally {
+            if (currentTicker === ticker) $("#research-loading").classList.add("hidden");
+        }
+    }
+    document.addEventListener("retry-research", () => { researchCache = {}; fetchResearch(); });
+
+    function fmtCompact(n) {
+        if (n == null) return "—";
+        const abs = Math.abs(n);
+        const sign = n < 0 ? "−" : "";
+        if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(2)}T`;
+        if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+        if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+        return `${sign}$${abs.toFixed(0)}`;
+    }
+
+    function fmtPct(n, digits = 1) {
+        if (n == null) return "—";
+        const v = n <= 1 && n >= -1 ? n * 100 : n;
+        return `${v >= 0 ? "" : ""}${v.toFixed(digits)}%`;
+    }
+
+    function renderResearch(data) {
+        const { overview: o, moat, management, valueChecks, dataQuality } = data;
+        const ccy = o.currency || "";
+
+        let html = "";
+
+        // ── Section 1: About the Business ────────────────────────────────────
+        const officersHtml = o.officers && o.officers.length
+            ? `<div class="research-officers">
+                <div class="research-section-title">${t("research_keyPeople")}</div>
+                <div class="research-officers-list">${o.officers.map(p => `
+                    <div class="research-officer">
+                        <span class="ro-name">${p.name || ""}</span>
+                        <span class="ro-title">${p.title || ""}</span>
+                        ${p.totalPay ? `<span class="ro-pay">${fmtCompact(p.totalPay)}</span>` : ""}
+                    </div>`).join("")}</div>
+            </div>`
+            : "";
+
+        html += `<div class="research-card research-about">
+            <div class="research-card-head">
+                <h3>${o.name}</h3>
+                <div class="research-meta">
+                    <span class="rmeta-pill">${o.sector || ""}</span>
+                    <span class="rmeta-pill">${o.industry || ""}</span>
+                    ${o.country ? `<span class="rmeta-pill">${o.country}</span>` : ""}
+                    ${o.employees ? `<span class="rmeta-pill">${o.employees.toLocaleString()} ${t("employees").toLowerCase()}</span>` : ""}
+                </div>
+            </div>
+            ${o.businessSummary ? `<div class="research-summary"><p>${o.businessSummary}</p></div>` : ""}
+            ${o.website ? `<a class="research-website" href="${o.website}" target="_blank" rel="noopener">${o.website.replace(/^https?:\/\//, "")} ↗</a>` : ""}
+            ${officersHtml}
+        </div>`;
+
+        // ── Data quality banner ──────────────────────────────────────────────
+        if (dataQuality && dataQuality.thinForSetMarket) {
+            html += `<div class="research-notice">
+                <span class="notice-icon">ⓘ</span>
+                ${t("research_thinDataNotice")}
+            </div>`;
+        }
+
+        // ── Section 2 + 3: Moat + Management side-by-side ────────────────────
+        html += `<div class="research-grid">
+            ${renderMoatCard(moat)}
+            ${renderManagementCard(management)}
+        </div>`;
+
+        // ── Section 4: Margin of Safety ──────────────────────────────────────
+        html += renderValueChecks(valueChecks, ccy);
+
+        $("#research-content").innerHTML = html;
+    }
+
+    function renderMoatCard(moat) {
+        if (!moat || moat.score == null) {
+            return `<div class="research-card research-moat">
+                <h3>${t("research_moat")}</h3>
+                <p class="research-empty">${t("research_noMoatData")}</p>
+            </div>`;
+        }
+        const grade = moat.grade || "N/A";
+        const gradeCls = moat.verdict || "neutral";
+
+        const bars = moat.components.map(c => {
+            const w = c.score == null ? 0 : c.score;
+            const vCls = c.verdict || "neutral";
+            const scoreText = c.score == null ? "—" : c.score;
+            return `<div class="moat-comp">
+                <div class="moat-comp-head">
+                    <span class="moat-comp-label">${c.label}</span>
+                    <span class="moat-comp-score ${vCls}">${scoreText}</span>
+                </div>
+                <div class="moat-comp-bar">
+                    <div class="moat-comp-fill ${vCls}" style="width:${w}%"></div>
+                </div>
+                <div class="moat-comp-detail">${c.detail || ""}</div>
+            </div>`;
+        }).join("");
+
+        return `<div class="research-card research-moat">
+            <div class="research-card-head">
+                <h3>${t("research_moat")}</h3>
+                <div class="score-badge-row">
+                    <span class="score-big ${gradeCls}">${moat.score}</span>
+                    <span class="grade-pill ${gradeCls}">${t("research_grade_" + grade.toLowerCase()) || grade}</span>
+                </div>
+            </div>
+            <p class="research-hint">${t("research_moatHint")}</p>
+            <div class="moat-components">${bars}</div>
+            ${renderMoatTrend(moat.trends)}
+        </div>`;
+    }
+
+    function renderMoatTrend(trends) {
+        if (!trends || !trends.years || trends.years.length < 2) return "";
+        const series = [
+            { key: "grossMargin", label: t("research_grossMargin"), color: "#58a6ff" },
+            { key: "operatingMargin", label: t("research_opMargin"), color: "#3fb950" },
+            { key: "roe", label: t("research_roe"), color: "#bc8cff" },
+        ];
+
+        const all = series.flatMap(s => (trends[s.key] || []).filter(v => v != null));
+        if (!all.length) return "";
+        const minV = Math.min(...all, 0);
+        const maxV = Math.max(...all, 0);
+        const range = (maxV - minV) || 1;
+        const w = 280, h = 90, padL = 6, padR = 6, padT = 8, padB = 18;
+        const innerW = w - padL - padR;
+        const innerH = h - padT - padB;
+        const n = trends.years.length;
+        const stepX = n > 1 ? innerW / (n - 1) : 0;
+        const yFor = v => padT + innerH - ((v - minV) / range) * innerH;
+
+        const paths = series.map(s => {
+            const vals = trends[s.key] || [];
+            const pts = vals.map((v, i) => v == null ? null : `${padL + i * stepX},${yFor(v)}`).filter(Boolean);
+            if (pts.length < 2) return "";
+            return `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`;
+        }).join("");
+
+        const xLabels = trends.years.map((y, i) =>
+            `<text x="${padL + i * stepX}" y="${h - 4}" font-size="9" fill="#8b949e" text-anchor="middle">${y}</text>`
+        ).join("");
+
+        const legend = series.map(s =>
+            `<span class="trend-legend-item"><span class="trend-legend-dot" style="background:${s.color}"></span>${s.label}</span>`
+        ).join("");
+
+        return `<div class="moat-trend">
+            <div class="moat-trend-head">
+                <span class="moat-trend-title">${t("research_marginTrend")}</span>
+                <div class="moat-trend-legend">${legend}</div>
+            </div>
+            <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+                <line x1="${padL}" y1="${yFor(0)}" x2="${padL + innerW}" y2="${yFor(0)}" stroke="#30363d" stroke-dasharray="2,3"/>
+                ${paths}
+                ${xLabels}
+            </svg>
+        </div>`;
+    }
+
+    function renderManagementCard(mgmt) {
+        if (!mgmt || mgmt.score == null) {
+            return `<div class="research-card research-mgmt">
+                <h3>${t("research_management")}</h3>
+                <p class="research-empty">${t("research_noMgmtData")}</p>
+            </div>`;
+        }
+        const gradeCls = mgmt.verdict || "neutral";
+
+        const bars = mgmt.components.map(c => {
+            const w = c.score == null ? 0 : c.score;
+            const vCls = c.verdict || "neutral";
+            const scoreText = c.score == null ? "—" : c.score;
+            return `<div class="moat-comp">
+                <div class="moat-comp-head">
+                    <span class="moat-comp-label">${c.label}</span>
+                    <span class="moat-comp-score ${vCls}">${scoreText}</span>
+                </div>
+                <div class="moat-comp-bar">
+                    <div class="moat-comp-fill ${vCls}" style="width:${w}%"></div>
+                </div>
+                <div class="moat-comp-detail">${c.detail || ""}</div>
+            </div>`;
+        }).join("");
+
+        const insiderTable = renderInsiderTxns(mgmt.insiderActivity);
+
+        return `<div class="research-card research-mgmt">
+            <div class="research-card-head">
+                <h3>${t("research_management")}</h3>
+                <div class="score-badge-row">
+                    <span class="score-big ${gradeCls}">${mgmt.score}</span>
+                    <span class="grade-pill ${gradeCls}">${mgmt.grade}</span>
+                </div>
+            </div>
+            <p class="research-hint">${t("research_mgmtHint")}</p>
+            <div class="moat-components">${bars}</div>
+            ${insiderTable}
+        </div>`;
+    }
+
+    function renderInsiderTxns(activity) {
+        if (!activity || !activity.recent || !activity.recent.length) return "";
+        const agg = activity.aggregate;
+        const aggLine = agg ? `<div class="insider-agg">
+            <span class="insider-agg-pill ${agg.netDollar > 0 ? "good" : (agg.netDollar < 0 ? "bad" : "neutral")}">
+                ${t("research_net180d")}: ${agg.netDollar >= 0 ? "+" : "−"}${fmtCompact(Math.abs(agg.netDollar)).replace("$", "$")}
+            </span>
+            <span class="insider-agg-meta">${agg.buys} ${t("research_buys")} · ${agg.sells} ${t("research_sales")}</span>
+        </div>` : "";
+
+        const rows = activity.recent.slice(0, 6).map(tx => `
+            <tr>
+                <td>${tx.date || ""}</td>
+                <td class="ins-name">${tx.name || ""}</td>
+                <td><span class="ins-type ${tx.type === "Buy" ? "good" : (tx.type === "Sale" ? "bad" : "neutral")}">${tx.type}</span></td>
+                <td class="num">${tx.shares ? tx.shares.toLocaleString() : "—"}</td>
+                <td class="num">${tx.value ? fmtCompact(tx.value) : "—"}</td>
+            </tr>`).join("");
+
+        return `<div class="insider-section">
+            <div class="research-section-title">${t("research_insiderTxns")}</div>
+            ${aggLine}
+            <div class="insider-table-wrap">
+                <table class="insider-table">
+                    <thead><tr>
+                        <th>${t("research_date")}</th>
+                        <th>${t("research_insider")}</th>
+                        <th>${t("research_type")}</th>
+                        <th class="num">${t("research_shares")}</th>
+                        <th class="num">${t("research_value")}</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    function renderValueChecks(vc, ccy) {
+        if (!vc) return "";
+        const methods = vc.marginOfSafety || [];
+        if (!methods.length) {
+            return `<div class="research-card">
+                <h3>${t("research_marginOfSafety")}</h3>
+                <p class="research-empty">${t("research_noValueData")}</p>
+            </div>`;
+        }
+        const ccyPrefix = ccy ? `${ccy} ` : "";
+        const rows = methods.map(m => {
+            const mosCls = m.verdict || "neutral";
+            const arrow = m.mosPercent == null ? "" : (m.mosPercent >= 0 ? "▲" : "▼");
+            return `<tr class="mos-row verdict-${mosCls}">
+                <td class="mos-method">${t("research_method_" + m.key) || m.label}</td>
+                <td class="num">${ccyPrefix}${m.intrinsic != null ? m.intrinsic.toFixed(2) : "—"}</td>
+                <td class="num">${ccyPrefix}${m.price != null ? m.price.toFixed(2) : "—"}</td>
+                <td class="num"><span class="mos-pct ${mosCls}">${arrow} ${m.mosPercent != null ? Math.abs(m.mosPercent).toFixed(1) + "%" : "—"}</span></td>
+                <td>${t("research_mosVerdict_" + mosCls)}</td>
+            </tr>`;
+        }).join("");
+
+        const owner = vc.ownerEarnings;
+        const ownerBlock = owner ? `<div class="value-helper">
+            <div class="value-helper-row">
+                <span class="value-helper-label">${t("research_ownerEarnings")}</span>
+                <span class="value-helper-val">${ccyPrefix}${owner.perShare.toFixed(2)} ${t("research_perShare")}</span>
+            </div>
+            <div class="value-helper-hint">${t("research_ownerHint")}</div>
+        </div>` : "";
+
+        const grahamBlock = vc.grahamNumber != null ? `<div class="value-helper">
+            <div class="value-helper-row">
+                <span class="value-helper-label">${t("research_grahamNumber")}</span>
+                <span class="value-helper-val">${ccyPrefix}${vc.grahamNumber.toFixed(2)}</span>
+            </div>
+            <div class="value-helper-hint">${t("research_grahamHint")}</div>
+        </div>` : "";
+
+        return `<div class="research-card research-mos">
+            <div class="research-card-head">
+                <h3>${t("research_marginOfSafety")}</h3>
+            </div>
+            <p class="research-hint">${t("research_mosHint")}</p>
+            <div class="mos-table-wrap">
+                <table class="mos-table">
+                    <thead><tr>
+                        <th>${t("research_method")}</th>
+                        <th class="num">${t("research_intrinsic")}</th>
+                        <th class="num">${t("research_price")}</th>
+                        <th class="num">${t("research_mosPct")}</th>
+                        <th>${t("research_verdict")}</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            <div class="mos-summary">${vc.summary || ""}</div>
+            <div class="value-helpers">${ownerBlock}${grahamBlock}</div>
+        </div>`;
+    }
+
     // ── Valuation Tab ──
 
     async function fetchValuation(overrides, retryCount = 0) {
@@ -1960,7 +2577,28 @@
         const dSign = data.totalDayPnl >= 0 ? "+" : "";
         const dCls = data.totalDayPnl >= 0 ? "profit" : "loss";
 
-        let html = `<div class="pf-summary-cards">
+        let html = "";
+
+        // ── Concentration risk flags banner (highest-severity first) ─────────
+        if (data.riskFlags && data.riskFlags.length) {
+            const severity = { extreme: 3, heavy: 2, warning: 1 };
+            const sorted = [...data.riskFlags].sort((a, b) => severity[b.level] - severity[a.level]);
+            html += `<div class="pf-risk-banner">
+                <div class="pf-risk-banner-head">
+                    <span class="pf-risk-icon">⚠</span>
+                    <span class="pf-risk-title">Concentration Risk Flags</span>
+                </div>
+                <div class="pf-risk-list">
+                    ${sorted.map(f => `<div class="pf-risk-row pf-risk-${f.level}">
+                        <span class="pf-risk-level">${f.level.toUpperCase()}</span>
+                        <span class="pf-risk-msg">${f.message}</span>
+                    </div>`).join("")}
+                </div>
+                <div class="pf-risk-thresholds">Thresholds: 30% warning · 50% heavy · 65% extreme</div>
+            </div>`;
+        }
+
+        html += `<div class="pf-summary-cards">
             <div class="pf-card">
                 <div class="pf-card-label">Total Value</div>
                 <div class="pf-card-value">${fmtCurrency(data.totalValue)}</div>
@@ -2033,6 +2671,26 @@
             </div>`;
         }
         html += `</div>`;
+
+        // Theme concentration — tactical theme exposure (overlapping, by design)
+        if (data.themes && data.themes.length) {
+            html += `<div class="pf-themes">
+                <h3>Theme Exposure</h3>
+                <p class="pf-themes-hint">Themes overlap intentionally — a semiconductor name is exposure to both Semis and AI Infra.</p>
+                <div class="pf-theme-list">`;
+            for (const t of data.themes) {
+                const barWidth = Math.min(100, t.pct);
+                html += `<div class="pf-theme-row" style="--theme-color:${t.color}">
+                    <div class="pf-theme-head">
+                        <span class="pf-theme-label">${t.icon || ""} ${t.label}</span>
+                        <span class="pf-theme-pct">${t.pct}%</span>
+                    </div>
+                    <div class="pf-theme-bar"><div class="pf-theme-fill" style="width:${barWidth}%"></div></div>
+                    <div class="pf-theme-tickers">${t.tickers.join(" · ")}</div>
+                </div>`;
+            }
+            html += `</div></div>`;
+        }
 
         // Key metrics
         const avgPE = weightedAvg(data.holdings, "pe", "value");
@@ -2248,6 +2906,10 @@
                 fetch(`/api/valuation/${encodeURIComponent(ticker)}?market=${currentMarket}`)
                     .then(r => r.ok ? r.json() : null).then(d => { if (d && !d.error) valuationCache[sKey] = d; }).catch(() => {});
             }
+            // Brief is the default landing tab — kick off its fetch immediately
+            // so the user lands on a populated view, not a spinner.
+            const briefTabActive = $(".tab-btn.active")?.dataset.tab === "brief";
+            if (briefTabActive) fetchBrief();
         } catch (err) {
             if (err.name === "AbortError") return;
             if (mySeq !== searchSeq) return;
@@ -2362,13 +3024,51 @@
 
     // ── Welcome / Home ──
 
+    // ── Welcome theme chips ─────────────────────────────────────────────────
+
+    async function loadThemes() {
+        if (themesCache) return themesCache;
+        try {
+            const res = await fetch("/api/themes");
+            if (!res.ok) return [];
+            const data = await res.json();
+            themesCache = data.themes || [];
+            return themesCache;
+        } catch {
+            return [];
+        }
+    }
+
+    async function renderWelcomeThemes() {
+        const container = $("#welcome-theme-chips");
+        if (!container) return;
+        const themes = await loadThemes();
+        if (!themes.length) return;
+        container.innerHTML = themes.map(th => `
+            <button class="theme-chip-btn" data-theme="${th.key}" style="--theme-color:${th.color}" title="${th.blurb || ""}">
+                <span class="theme-chip-icon">${th.icon || ""}</span>
+                <span class="theme-chip-label">${th.label}</span>
+            </button>
+        `).join("");
+
+        container.querySelectorAll(".theme-chip-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const theme = themes.find(t => t.key === btn.dataset.theme);
+                if (!theme || !theme.tickers || !theme.tickers.length) return;
+                const picked = theme.tickers[Math.floor(Math.random() * Math.min(5, theme.tickers.length))];
+                welcomeSearch(picked, "us");
+            });
+        });
+    }
+
     const TYPEWRITER_PHRASES = [
-        "Analyzing PTT.BK — Signal: BUY",
-        "Running DCF on AAPL — 18.2% upside",
-        "Scanning SET market for opportunities",
-        "Checking MACD crossover on AOT.BK",
-        "Portfolio P&L today: +2.4%",
-        "TSLA Stochastic exiting oversold zone",
+        "NVDA brief — Wide moat, RSI 64, base case +12%",
+        "RKLB — High-beta thematic, size 1–2%",
+        "IREN breaking out above $18.40 resistance",
+        "NBIS — AI infra exposure, watch hyperscaler capex",
+        "OKLO — SMR catalyst stack, NRC milestone Q1",
+        "Portfolio: AI Infra 34% · trim to 25% suggested",
+        "ASTS launch cadence — next window mid-Q2",
     ];
 
     let twIdx = 0;
@@ -3052,6 +3752,7 @@
         initScrollReveals();
         typewriterTick();
         initBurstCanvas();
+        renderWelcomeThemes();
 
         // Clickable feature cards
         $$(".wf-card[data-action]").forEach(card => {
@@ -3075,7 +3776,9 @@
                         if (tabBtn.length) tabBtn[0].classList.add("active");
                         const tabEl = $(`#tab-${action}`);
                         if (tabEl) tabEl.classList.add("active");
+                        if (action === "brief") fetchBrief();
                         if (action === "summary") fetchSummary();
+                        if (action === "research") fetchResearch();
                         if (action === "valuation") fetchValuation();
                     }
                 }
@@ -3135,7 +3838,7 @@
         $$(".btn-market-pill").forEach(btn => btn.addEventListener("click", () => {
             $$(".btn-market-pill").forEach(b => b.classList.remove("active"));
             btn.classList.add("active"); currentMarket = btn.dataset.market;
-            summaryCache = {}; valuationCache = {}; applyLanguage(); if (currentTicker) doSearch();
+            summaryCache = {}; valuationCache = {}; researchCache = {}; briefCache = {}; applyLanguage(); if (currentTicker) doSearch();
         }));
 
         $("#pb-refresh").addEventListener("click", refreshData);
@@ -3182,7 +3885,9 @@
             $$(".tab-content").forEach(c => c.classList.remove("active"));
             btn.classList.add("active");
             $(`#tab-${btn.dataset.tab}`).classList.add("active");
+            if (btn.dataset.tab === "brief" && currentTicker) fetchBrief();
             if (btn.dataset.tab === "summary" && currentTicker) fetchSummary();
+            if (btn.dataset.tab === "research" && currentTicker) fetchResearch();
             if (btn.dataset.tab === "valuation" && currentTicker) fetchValuation();
             if (btn.dataset.tab === "backtest") { populateBtConfig(); }
         }));
